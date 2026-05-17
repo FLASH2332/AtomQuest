@@ -496,7 +496,7 @@ export default function NewGoalsPage() {
                       value={goal.thrust_area_id}
                       onChange={e => updateGoal(index, 'thrust_area_id', e.target.value)}
                       className="w-full px-4 py-2.5 rounded-lg bg-slate-700/60 border border-slate-600 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition text-sm disabled:opacity-50"
-                      disabled={isSaving || thrustAreas.length === 0}
+                      disabled={isSaving || isReadOnly || thrustAreas.length === 0}
                     >
                       <option value="">— Select thrust area —</option>
                       {thrustAreas.map(area => (
@@ -518,7 +518,7 @@ export default function NewGoalsPage() {
                       onChange={e => updateGoal(index, 'title', e.target.value)}
                       placeholder="e.g. Achieve Q2 Sales Revenue Target"
                       className="w-full px-4 py-2.5 rounded-lg bg-slate-700/60 border border-slate-600 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition text-sm disabled:opacity-50"
-                      disabled={isSaving}
+                      disabled={isSaving || isReadOnly}
                       maxLength={200}
                     />
                     <FieldError message={errs.title} />
@@ -536,7 +536,7 @@ export default function NewGoalsPage() {
                       placeholder="Describe what success looks like…"
                       rows={2}
                       className="w-full px-4 py-2.5 rounded-lg bg-slate-700/60 border border-slate-600 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition text-sm resize-none disabled:opacity-50"
-                      disabled={isSaving}
+                      disabled={isSaving || isReadOnly}
                       maxLength={1000}
                     />
                   </div>
@@ -553,7 +553,7 @@ export default function NewGoalsPage() {
                         value={goal.uom_type}
                         onChange={e => updateGoal(index, 'uom_type', e.target.value)}
                         className="w-full px-4 py-2.5 rounded-lg bg-slate-700/60 border border-slate-600 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition text-sm disabled:opacity-50"
-                        disabled={isSaving}
+                        disabled={isSaving || isReadOnly}
                       >
                         {UOM_OPTIONS.map(opt => (
                           <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -575,7 +575,7 @@ export default function NewGoalsPage() {
                             value={goal.target_date}
                             onChange={e => updateGoal(index, 'target_date', e.target.value)}
                             className="w-full px-4 py-2.5 rounded-lg bg-slate-700/60 border border-slate-600 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition text-sm disabled:opacity-50 [color-scheme:dark]"
-                            disabled={isSaving}
+                            disabled={isSaving || isReadOnly}
                           />
                           <FieldError message={errs.target_date} />
                         </>
@@ -600,7 +600,7 @@ export default function NewGoalsPage() {
                             onChange={e => updateGoal(index, 'target', e.target.value)}
                             placeholder="e.g. 1000000"
                             className="w-full px-4 py-2.5 rounded-lg bg-slate-700/60 border border-slate-600 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition text-sm disabled:opacity-50"
-                            disabled={isSaving}
+                            disabled={isSaving || isReadOnly}
                           />
                           <FieldError message={errs.target} />
                         </>
@@ -624,7 +624,7 @@ export default function NewGoalsPage() {
                         onChange={e => updateGoal(index, 'weightage', e.target.value)}
                         placeholder="e.g. 25"
                         className="w-full px-4 py-2.5 pr-10 rounded-lg bg-slate-700/60 border border-slate-600 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition text-sm disabled:opacity-50"
-                        disabled={isSaving}
+                        disabled={isSaving || isReadOnly}
                       />
                       <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm pointer-events-none">%</span>
                     </div>
