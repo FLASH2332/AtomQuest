@@ -71,7 +71,7 @@ export default function EmployeeDashboard() {
         .single();
 
       if (cycleErr || !activeCycle) {
-        setLoadError('No active goal cycle. Contact your administrator.');
+        setLoadError(cycleErr?.message || 'No active goal cycle. Contact your administrator.');
         setLoading(false);
         return;
       }
@@ -112,10 +112,7 @@ export default function EmployeeDashboard() {
     load();
   }, []);
 
-  async function handleSignOut() {
-    await supabase.auth.signOut();
-    router.push('/login');
-  }
+
 
   // ─── Loading ───────────────────────────────────────────────────────────────
   if (loading) {
@@ -149,7 +146,7 @@ export default function EmployeeDashboard() {
       <div className="max-w-3xl mx-auto">
 
         {/* Header */}
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
           <div className="flex items-center gap-3">
             <AtomIcon size={32} />
             <div>
@@ -159,14 +156,6 @@ export default function EmployeeDashboard() {
               </p>
             </div>
           </div>
-          <button
-            id="sign-out-btn"
-            type="button"
-            onClick={handleSignOut}
-            className="text-slate-500 hover:text-slate-300 text-xs transition-colors"
-          >
-            Sign out
-          </button>
         </div>
 
         {/* Goal Sheet Status Card */}

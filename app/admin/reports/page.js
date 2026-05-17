@@ -58,21 +58,9 @@ export default function AdminReports() {
 
   useEffect(() => {
     async function load() {
-      const { data: { user }, error: authErr } = await supabase.auth.getUser();
-      if (!user) { router.push('/login'); return; }
-
-      // Verify admin role
-      const { data: profile, error: profileErr } = await supabase
-        .from('profiles')
-        .select('id, role, full_name')
-        .eq('id', user.id)
-        .single();
-      
-      if (profile?.role !== 'admin') {
-        router.push('/login');
-        return;
-      }
-      setAdminProfile(profile);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return; // Layout will handle redirect
+      setAdminProfile({ id: user.id, full_name: 'Admin' });
 
       // Active cycle
       const { data: activeCycle, error: cycleErr } = await supabase
@@ -246,7 +234,7 @@ export default function AdminReports() {
               <p className="text-slate-400 text-sm mt-0.5">Cycle: {cycle?.name}</p>
             </div>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 flex-wrap">
             <button
               type="button"
               onClick={handleExport}

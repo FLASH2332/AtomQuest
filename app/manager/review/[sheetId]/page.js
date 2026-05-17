@@ -56,21 +56,8 @@ export default function ManagerReviewPage({ params }) {
 
   useEffect(() => {
     async function load() {
-      const { data: { user }, error: authErr } = await supabase.auth.getUser();
-      console.log('error:', authErr);
-      if (!user) { router.push('/login'); return; }
-
-      // Verify manager/admin role
-      const { data: profile, error: profileErr } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', user.id)
-        .single();
-      console.log('error:', profileErr);
-      if (profile?.role !== 'manager' && profile?.role !== 'admin') {
-        router.push('/login');
-        return;
-      }
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return; // Layout will handle redirect
 
       // Sheet
       const { data: sheetRow, error: sheetErr } = await supabase

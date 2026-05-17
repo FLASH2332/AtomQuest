@@ -56,22 +56,10 @@ export default function ManagerDashboard() {
 
   useEffect(() => {
     async function load() {
-      const { data: { user }, error: authErr } = await supabase.auth.getUser();
-      console.log('error:', authErr);
-      if (!user) { router.push('/login'); return; }
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return; // Layout will redirect
+      setManagerName('Manager'); // Default fallback, layout layout will provide actual info if needed
 
-      // Verify manager role
-      const { data: profile, error: profileErr } = await supabase
-        .from('profiles')
-        .select('role, full_name')
-        .eq('id', user.id)
-        .single();
-      console.log('error:', profileErr);
-      if (profile?.role !== 'manager' && profile?.role !== 'admin') {
-        router.push('/login');
-        return;
-      }
-      setManagerName(profile.full_name ?? 'Manager');
 
       // Active cycle
       const { data: activeCycle, error: cycleErr } = await supabase
@@ -119,10 +107,7 @@ export default function ManagerDashboard() {
     load();
   }, []);
 
-  async function handleSignOut() {
-    await supabase.auth.signOut();
-    router.push('/login');
-  }
+
 
   // ─── Loading ──────────────────────────────────────────────────────────────
   if (loading) {
@@ -153,7 +138,7 @@ export default function ManagerDashboard() {
       <div className="max-w-3xl mx-auto">
 
         {/* Header */}
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
           <div className="flex items-center gap-3">
             <AtomIcon size={32} />
             <div>
@@ -161,14 +146,6 @@ export default function ManagerDashboard() {
               <p className="text-slate-400 text-sm mt-0.5">{managerName} · {cycle?.name}</p>
             </div>
           </div>
-          <button
-            id="sign-out-btn"
-            type="button"
-            onClick={handleSignOut}
-            className="text-slate-500 hover:text-slate-300 text-xs transition-colors"
-          >
-            Sign out
-          </button>
         </div>
 
         {/* Pending reviews callout */}
@@ -196,7 +173,7 @@ export default function ManagerDashboard() {
                 <div
                   key={profile.id}
                   id={`team-row-${i}`}
-                  className="bg-slate-800/60 backdrop-blur-sm border border-slate-700/60 rounded-xl px-5 py-4 flex items-center justify-between gap-4"
+                  className="bg-slate-800/60 backdrop-blur-sm border border-slate-700/60 rounded-xl px-5 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
                 >
                   {/* Member info */}
                   <div className="flex-1 min-w-0">
@@ -221,7 +198,7 @@ export default function ManagerDashboard() {
 
                   {/* View / Check-in links for approved */}
                   {sheet?.status === 'approved' && (
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <button
                         id={`checkin-btn-${i}`}
                         type="button"

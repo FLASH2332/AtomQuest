@@ -60,22 +60,10 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     async function load() {
-      const { data: { user }, error: authErr } = await supabase.auth.getUser();
-      console.log('error:', authErr);
-      if (!user) { router.push('/login'); return; }
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return; // Layout will handle redirect
+      setAdminProfile({ id: user.id, full_name: 'Admin' });
 
-      // Verify admin role
-      const { data: profile, error: profileErr } = await supabase
-        .from('profiles')
-        .select('id, role, full_name')
-        .eq('id', user.id)
-        .single();
-      console.log('error:', profileErr);
-      if (profile?.role !== 'admin') {
-        router.push('/login');
-        return;
-      }
-      setAdminProfile(profile);
 
       // Active cycle
       const { data: activeCycle, error: cycleErr } = await supabase
@@ -148,10 +136,7 @@ export default function AdminDashboard() {
     load();
   }, []);
 
-  async function handleSignOut() {
-    await supabase.auth.signOut();
-    router.push('/login');
-  }
+
 
   async function handleUnlockGoal(goal) {
     if (!confirm(`Are you sure you want to unlock the goal: "${goal.title}"? The employee will be able to edit it again.`)) return;
@@ -246,7 +231,7 @@ export default function AdminDashboard() {
       <div className="max-w-4xl mx-auto">
 
         {/* Header */}
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
           <div className="flex items-center gap-3">
             <AtomIcon size={32} />
             <div>
@@ -254,14 +239,6 @@ export default function AdminDashboard() {
               <p className="text-slate-400 text-sm mt-0.5">{adminProfile?.full_name}</p>
             </div>
           </div>
-          <button
-            id="sign-out-btn"
-            type="button"
-            onClick={handleSignOut}
-            className="text-slate-500 hover:text-slate-300 text-xs transition-colors"
-          >
-            Sign out
-          </button>
         </div>
 
         {/* Action alerts */}

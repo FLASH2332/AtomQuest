@@ -94,9 +94,8 @@ export default function CheckInPage() {
 
   useEffect(() => {
     async function load() {
-      const { data: { user }, error: authErr } = await supabase.auth.getUser();
-      console.log('error:', authErr);
-      if (!user) { router.push('/login'); return; }
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return; // Layout will redirect
 
       // Active cycle (with all quarter open-dates for quarter determination)
       const { data: activeCycle, error: cycleErr } = await supabase
@@ -106,8 +105,8 @@ export default function CheckInPage() {
         .maybeSingle();
       console.log('error:', cycleErr);
 
-      if (!activeCycle) {
-        setLoadError('No active goal cycle. Contact your administrator.');
+      if (cycleErr || !activeCycle) {
+        setLoadError(cycleErr?.message || 'No active goal cycle. Contact your administrator.');
         setLoading(false);
         return;
       }

@@ -133,7 +133,7 @@ export default function NewGoalsPage() {
   useEffect(() => {
     async function load() {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { router.push('/login'); return; }
+      if (!user) return; // Layout will redirect
 
       // Active cycle
       const { data: cycle, error: cycleErr } = await supabase
@@ -295,7 +295,7 @@ export default function NewGoalsPage() {
     startTransition(async () => {
       try {
         const { data: { user } } = await supabase.auth.getUser();
-        if (!user) { router.push('/login'); return; }
+        if (!user) return;
 
         // Fetch existing sheet (draft or returned) or create a new one.
         // We avoid upsert here because Supabase upsert may not return the
@@ -675,8 +675,7 @@ export default function NewGoalsPage() {
           </div>
         )}
 
-        {/* Actions */}
-        <div className="mt-6 flex items-center justify-between gap-4">
+        <div className="mt-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <button
             id="back-dashboard-btn"
             type="button"
