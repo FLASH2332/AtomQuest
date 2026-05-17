@@ -90,6 +90,7 @@ export default function CheckInPage() {
   const [loading, setLoading]               = useState(true);
   const [loadError, setLoadError]           = useState('');
   const [saveState, setSaveState]           = useState({}); // goalId → {saving, error, success}
+  const [managerComment, setManagerComment] = useState(null);
 
   useEffect(() => {
     async function load() {
@@ -181,11 +182,23 @@ export default function CheckInPage() {
             ? (g.uom_type === 'timeline' ? '' : String(existing.actual_value ?? ''))
             : '',
           completionDate:  existing?.completion_date ?? '',
-          status:          'on_track', // UI-only — not persisted (not in achievements schema)
+          status:          existing?.status ?? 'on_track',
           // Saved score (for display)
           savedScore:      existing?.progress_score ?? null,
         };
       }));
+
+      // Fetch manager comment for this quarter
+      const { data: checkinData, error: checkinErr } = await supabase
+        .from('checkins')
+        .select('comment')
+        .eq('sheet_id', sheet.id)
+        .eq('quarter', quarter)
+        .maybeSingle();
+      console.log('error:', checkinErr);
+      if (checkinData) {
+        setManagerComment(checkinData.comment);
+      }
 
       setLoading(false);
     }
@@ -514,6 +527,18 @@ export default function CheckInPage() {
               </div>
             );
           })}
+        </div>
+
+        {/* Manager Feedback */}
+        <div className="mt-8 bg-slate-800/60 backdrop-blur-sm border border-slate-700/60 rounded-2xl p-6">
+          <h2 className="text-sm font-semibold text-white mb-3">Manager Feedback</h2>
+          {managerComment ? (
+            <div className="bg-slate-900/40 border border-slate-700/40 rounded-lg p-4 text-sm text-slate-300 whitespace-pre-wrap">
+              {managerComment}
+            </div>
+          ) : (
+            <p className="text-sm text-slate-500 italic">No feedback yet for this quarter.</p>
+          )}
         </div>
 
         <p className="text-center text-slate-600 text-xs mt-10">
