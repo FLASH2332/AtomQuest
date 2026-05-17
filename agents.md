@@ -189,3 +189,12 @@ After creating auth users, insert matching rows into `profiles` table with corre
 - Never hardcode cycle dates — always read from `goal_cycles` table
 - Never use `SUPABASE_SERVICE_ROLE_KEY` in client-side code
 - Never store computed progress scores in component state only — persist to DB
+
+---
+
+## 11. Debugging
+
+- Always destructure both `data` and `error` from every Supabase query and `console.log('error:', error)` during development. Never ignore the error return. The network tab only shows HTTP status codes, not the actual PostgREST error message.
+- The `error` object has `.message`, `.code`, `.hint`, and `.details` — all more useful than the HTTP 400/500 status alone.
+- Use `.maybeSingle()` instead of `.single()` when a row may legitimately not exist — `.single()` throws on zero rows.
+- Inline PostgREST joins (`table(col)`) require a foreign key declared in the DB schema. If a join causes a 400, replace it with a separate flat query and build a lookup map in JS.
