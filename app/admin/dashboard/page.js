@@ -259,7 +259,7 @@ export default function AdminDashboard() {
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
             <div>
               <p className="text-slate-500 text-xs uppercase tracking-wider mb-1">FY Period</p>
-              <p className="text-slate-300">{formatDate(cycle?.fy_start)} - {formatDate(cycle?.fy_end)}</p>
+              <p className="text-slate-300">{formatDate(cycle?.goal_setting_open)} — {formatDate(cycle?.q4_open)}</p>
             </div>
             <div>
               <p className="text-slate-500 text-xs uppercase tracking-wider mb-1">Goal Setting Opens</p>
