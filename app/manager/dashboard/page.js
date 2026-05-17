@@ -219,16 +219,26 @@ export default function ManagerDashboard() {
                     </button>
                   )}
 
-                  {/* View-only link for approved */}
+                  {/* View / Check-in links for approved */}
                   {sheet?.status === 'approved' && (
-                    <button
-                      id={`view-btn-${i}`}
-                      type="button"
-                      onClick={() => router.push(`/manager/review/${sheet.id}`)}
-                      className="shrink-0 px-4 py-2 rounded-lg border border-slate-600 hover:border-slate-500 text-slate-400 hover:text-white text-xs font-medium transition-colors"
-                    >
-                      View
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        id={`checkin-btn-${i}`}
+                        type="button"
+                        onClick={() => router.push(`/manager/checkin/${sheet.id}`)}
+                        className="shrink-0 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:ring-offset-2 focus:ring-offset-slate-800"
+                      >
+                        Check-in
+                      </button>
+                      <button
+                        id={`view-btn-${i}`}
+                        type="button"
+                        onClick={() => router.push(`/manager/review/${sheet.id}`)}
+                        className="shrink-0 px-4 py-2 rounded-lg border border-slate-600 hover:border-slate-500 text-slate-400 hover:text-white text-xs font-medium transition-colors"
+                      >
+                        View Goal Sheet
+                      </button>
+                    </div>
                   )}
                 </div>
               ))}
