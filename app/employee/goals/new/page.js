@@ -121,8 +121,13 @@ export default function NewGoalsPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [touched, setTouched] = useState(false);
 
-  // Goals are read-only once submitted or approved
-  const isReadOnly = sheetStatus === 'submitted' || sheetStatus === 'approved';
+  // Check if all goals are locked
+  const allGoalsLocked = goals.length > 0 && goals.every(g => g.is_locked);
+  // Goals are read-only once submitted or approved, UNLESS approved but a goal is unlocked
+  let isReadOnly = sheetStatus === 'submitted' || sheetStatus === 'approved';
+  if (sheetStatus === 'approved' && !allGoalsLocked) {
+    isReadOnly = false;
+  }
 
   // ── Load active cycle, thrust areas, and any existing draft ─────────────────
   useEffect(() => {
@@ -156,13 +161,12 @@ export default function NewGoalsPage() {
       }
       setThrustAreas(areas ?? []);
 
-      // Check for an existing draft or returned sheet for this user + cycle
+      // Check for an existing sheet for this user + cycle
       const { data: sheet } = await supabase
         .from('goal_sheets')
         .select('id, status')
         .eq('employee_id', user.id)
         .eq('cycle_id', cycle.id)
-        .in('status', ['draft', 'returned'])
         .maybeSingle();
 
       if (sheet) {
@@ -172,12 +176,13 @@ export default function NewGoalsPage() {
         // Fetch goals for that sheet
         const { data: existingGoals } = await supabase
           .from('goals')
-          .select('thrust_area_id, title, description, uom_type, target, target_date, weightage')
+          .select('id, thrust_area_id, title, description, uom_type, target, target_date, weightage, is_locked')
           .eq('sheet_id', sheet.id)
-          .order('created_at');
+          .order('sort_order');
 
         if (existingGoals && existingGoals.length > 0) {
           const formGoals = existingGoals.map(g => ({
+            id: g.id,
             thrust_area_id: g.thrust_area_id ?? '',
             title: g.title ?? '',
             description: g.description ?? '',
@@ -187,45 +192,10 @@ export default function NewGoalsPage() {
               : String(g.target ?? ''),
             target_date: g.uom_type === 'timeline' ? (g.target_date ?? '') : '',
             weightage: String(g.weightage ?? ''),
+            is_locked: !!g.is_locked,
           }));
           setGoals(formGoals);
           setFieldErrors(formGoals.map(() => ({})));
-        }
-      } else {
-        // Also check for submitted/approved sheet so we can show read-only view
-        const { data: lockedSheet } = await supabase
-          .from('goal_sheets')
-          .select('id, status')
-          .eq('employee_id', user.id)
-          .eq('cycle_id', cycle.id)
-          .in('status', ['submitted', 'approved'])
-          .maybeSingle();
-
-        if (lockedSheet) {
-          setSheetStatus(lockedSheet.status);
-          setSheetId(lockedSheet.id);
-
-          const { data: existingGoals } = await supabase
-            .from('goals')
-            .select('thrust_area_id, title, description, uom_type, target, target_date, weightage')
-            .eq('sheet_id', lockedSheet.id)
-            .order('created_at');
-
-          if (existingGoals && existingGoals.length > 0) {
-            const formGoals = existingGoals.map(g => ({
-              thrust_area_id: g.thrust_area_id ?? '',
-              title: g.title ?? '',
-              description: g.description ?? '',
-              uom_type: g.uom_type ?? 'min',
-              target: g.uom_type === 'timeline' || g.uom_type === 'zero'
-                ? ''
-                : String(g.target ?? ''),
-              target_date: g.uom_type === 'timeline' ? (g.target_date ?? '') : '',
-              weightage: String(g.weightage ?? ''),
-            }));
-            setGoals(formGoals);
-            setFieldErrors(formGoals.map(() => ({})));
-          }
         }
       }
     }
@@ -354,38 +324,50 @@ export default function NewGoalsPage() {
           setSheetId(sheetId);
         }
 
-        // Delete ALL existing goals for this sheet — runs every time, unconditionally.
-        console.log('deleting goals for sheetId:', sheetId);
-        const { error: deleteErr } = await supabase
-          .from('goals')
-          .delete()
-          .eq('sheet_id', sheetId);
-        console.log('delete result:', deleteErr);
-
-        if (deleteErr) throw new Error(deleteErr.message);
-
         // Insert all goals
-        const goalsPayload = goals.map(g => ({
-          sheet_id: sheetId,
-          thrust_area_id: g.thrust_area_id,
-          title: g.title.trim(),
-          description: g.description.trim() || null,
-          uom_type: g.uom_type,
-          target: g.uom_type === 'timeline'
-            ? null
-            : g.uom_type === 'zero'
-              ? 0
-              : Number(g.target),
-          target_date: g.uom_type === 'timeline' ? g.target_date : null,
-          weightage: Number(g.weightage),
-          is_locked: false,
-          is_shared: false,
-          parent_goal_id: null,
-        }));
+        const goalsPayload = goals.map((g, index) => {
+          const payload = {
+            sheet_id: sheetId,
+            thrust_area_id: g.thrust_area_id,
+            title: g.title.trim(),
+            description: g.description.trim() || null,
+            uom_type: g.uom_type,
+            target: g.uom_type === 'timeline'
+              ? null
+              : g.uom_type === 'zero'
+                ? 0
+                : Number(g.target),
+            target_date: g.uom_type === 'timeline' ? g.target_date : null,
+            weightage: Number(g.weightage),
+            is_locked: !!g.is_locked,
+            is_shared: false,
+            parent_goal_id: null,
+            sort_order: index,
+          };
+          if (g.id) payload.id = g.id;
+          return payload;
+        });
+
+        // Delete removed goals safely
+        const currentGoalIds = goals.filter(g => g.id).map(g => g.id);
+        if (currentGoalIds.length > 0) {
+          const { error: deleteErr } = await supabase
+            .from('goals')
+            .delete()
+            .eq('sheet_id', sheetId)
+            .not('id', 'in', `(${currentGoalIds.join(',')})`);
+          if (deleteErr) throw new Error(deleteErr.message);
+        } else {
+          const { error: deleteErr } = await supabase
+            .from('goals')
+            .delete()
+            .eq('sheet_id', sheetId);
+          if (deleteErr) throw new Error(deleteErr.message);
+        }
 
         const { error: goalsErr } = await supabase
           .from('goals')
-          .insert(goalsPayload);
+          .upsert(goalsPayload);
 
         if (goalsErr) throw new Error(goalsErr.message);
 
@@ -470,7 +452,7 @@ export default function NewGoalsPage() {
                   <span className="text-sm font-semibold text-indigo-400 uppercase tracking-wider">
                     Goal {index + 1}
                   </span>
-                  {goals.length > 1 && (
+                  {goals.length > 1 && !goal.is_locked && !isReadOnly && (
                     <button
                       id={`remove-goal-${index}`}
                       type="button"
@@ -496,7 +478,7 @@ export default function NewGoalsPage() {
                       value={goal.thrust_area_id}
                       onChange={e => updateGoal(index, 'thrust_area_id', e.target.value)}
                       className="w-full px-4 py-2.5 rounded-lg bg-slate-700/60 border border-slate-600 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition text-sm disabled:opacity-50"
-                      disabled={isSaving || isReadOnly || thrustAreas.length === 0}
+                      disabled={isSaving || isReadOnly || goal.is_locked || thrustAreas.length === 0}
                     >
                       <option value="">— Select thrust area —</option>
                       {thrustAreas.map(area => (
@@ -518,7 +500,7 @@ export default function NewGoalsPage() {
                       onChange={e => updateGoal(index, 'title', e.target.value)}
                       placeholder="e.g. Achieve Q2 Sales Revenue Target"
                       className="w-full px-4 py-2.5 rounded-lg bg-slate-700/60 border border-slate-600 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition text-sm disabled:opacity-50"
-                      disabled={isSaving || isReadOnly}
+                      disabled={isSaving || isReadOnly || goal.is_locked}
                       maxLength={200}
                     />
                     <FieldError message={errs.title} />
@@ -536,7 +518,7 @@ export default function NewGoalsPage() {
                       placeholder="Describe what success looks like…"
                       rows={2}
                       className="w-full px-4 py-2.5 rounded-lg bg-slate-700/60 border border-slate-600 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition text-sm resize-none disabled:opacity-50"
-                      disabled={isSaving || isReadOnly}
+                      disabled={isSaving || isReadOnly || goal.is_locked}
                       maxLength={1000}
                     />
                   </div>
@@ -553,7 +535,7 @@ export default function NewGoalsPage() {
                         value={goal.uom_type}
                         onChange={e => updateGoal(index, 'uom_type', e.target.value)}
                         className="w-full px-4 py-2.5 rounded-lg bg-slate-700/60 border border-slate-600 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition text-sm disabled:opacity-50"
-                        disabled={isSaving || isReadOnly}
+                        disabled={isSaving || isReadOnly || goal.is_locked}
                       >
                         {UOM_OPTIONS.map(opt => (
                           <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -575,7 +557,7 @@ export default function NewGoalsPage() {
                             value={goal.target_date}
                             onChange={e => updateGoal(index, 'target_date', e.target.value)}
                             className="w-full px-4 py-2.5 rounded-lg bg-slate-700/60 border border-slate-600 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition text-sm disabled:opacity-50 [color-scheme:dark]"
-                            disabled={isSaving || isReadOnly}
+                            disabled={isSaving || isReadOnly || goal.is_locked}
                           />
                           <FieldError message={errs.target_date} />
                         </>
@@ -600,7 +582,7 @@ export default function NewGoalsPage() {
                             onChange={e => updateGoal(index, 'target', e.target.value)}
                             placeholder="e.g. 1000000"
                             className="w-full px-4 py-2.5 rounded-lg bg-slate-700/60 border border-slate-600 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition text-sm disabled:opacity-50"
-                            disabled={isSaving || isReadOnly}
+                            disabled={isSaving || isReadOnly || goal.is_locked}
                           />
                           <FieldError message={errs.target} />
                         </>
@@ -624,7 +606,7 @@ export default function NewGoalsPage() {
                         onChange={e => updateGoal(index, 'weightage', e.target.value)}
                         placeholder="e.g. 25"
                         className="w-full px-4 py-2.5 pr-10 rounded-lg bg-slate-700/60 border border-slate-600 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition text-sm disabled:opacity-50"
-                        disabled={isSaving || isReadOnly}
+                        disabled={isSaving || isReadOnly || goal.is_locked}
                       />
                       <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm pointer-events-none">%</span>
                     </div>
