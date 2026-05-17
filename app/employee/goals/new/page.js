@@ -702,7 +702,7 @@ export default function NewGoalsPage() {
                 id="submit-sheet-btn"
                 type="button"
                 onClick={submitSheet}
-                disabled={isSaving || isSubmitting || submitSuccess || isSubmitted}
+                disabled={isSaving || isSubmitting || submitSuccess || isSubmitted || totalWeightage !== 100}
                 className="px-8 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-semibold text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:ring-offset-2 focus:ring-offset-slate-800 disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
               >
                 {isSubmitting ? <><Spinner />Submitting…</> : 'Submit for Approval'}
