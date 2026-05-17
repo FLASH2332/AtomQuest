@@ -342,6 +342,7 @@ export default function NewGoalsPage() {
 
         if (existingSheet) {
           sheetId = existingSheet.id;
+          setSheetId(sheetId);
         } else {
           const { data: newSheet, error: insertSheetErr } = await supabase
             .from('goal_sheets')
@@ -350,6 +351,7 @@ export default function NewGoalsPage() {
             .single();
           if (insertSheetErr) throw new Error(insertSheetErr.message);
           sheetId = newSheet.id;
+          setSheetId(sheetId);
         }
 
         // Delete ALL existing goals for this sheet — runs every time, unconditionally.
