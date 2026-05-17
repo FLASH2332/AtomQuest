@@ -107,15 +107,22 @@ export default function NewGoalsPage() {
 
   const [thrustAreas, setThrustAreas] = useState([]);
   const [activeCycle, setActiveCycle] = useState(null);
+  const [sheetStatus, setSheetStatus] = useState(null); // null = no sheet yet
+  const [sheetId, setSheetId] = useState(null);         // persisted across saves
   const [goals, setGoals] = useState([emptyGoal()]);
   const [fieldErrors, setFieldErrors] = useState([{}]);
   const [weightageError, setWeightageError] = useState(null);
   const [submitError, setSubmitError] = useState('');
   const [submitSuccess, setSubmitSuccess] = useState(false);
+  const [isSubmitted, setIsSubmitted] = useState(false);
   const [loadError, setLoadError] = useState('');
   const [isPending, startTransition] = useTransition();
   const [isSaving, setIsSaving] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [touched, setTouched] = useState(false);
+
+  // Goals are read-only once submitted or approved
+  const isReadOnly = sheetStatus === 'submitted' || sheetStatus === 'approved';
 
   // ── Load active cycle, thrust areas, and any existing draft ─────────────────
   useEffect(() => {
@@ -159,6 +166,9 @@ export default function NewGoalsPage() {
         .maybeSingle();
 
       if (sheet) {
+        setSheetStatus(sheet.status);
+        setSheetId(sheet.id);
+
         // Fetch goals for that sheet
         const { data: existingGoals } = await supabase
           .from('goals')
@@ -167,13 +177,11 @@ export default function NewGoalsPage() {
           .order('created_at');
 
         if (existingGoals && existingGoals.length > 0) {
-          // Map DB rows → form shape
           const formGoals = existingGoals.map(g => ({
             thrust_area_id: g.thrust_area_id ?? '',
             title: g.title ?? '',
             description: g.description ?? '',
             uom_type: g.uom_type ?? 'min',
-            // target_date only applies to 'timeline'; target is numeric otherwise
             target: g.uom_type === 'timeline' || g.uom_type === 'zero'
               ? ''
               : String(g.target ?? ''),
@@ -182,6 +190,42 @@ export default function NewGoalsPage() {
           }));
           setGoals(formGoals);
           setFieldErrors(formGoals.map(() => ({})));
+        }
+      } else {
+        // Also check for submitted/approved sheet so we can show read-only view
+        const { data: lockedSheet } = await supabase
+          .from('goal_sheets')
+          .select('id, status')
+          .eq('employee_id', user.id)
+          .eq('cycle_id', cycle.id)
+          .in('status', ['submitted', 'approved'])
+          .maybeSingle();
+
+        if (lockedSheet) {
+          setSheetStatus(lockedSheet.status);
+          setSheetId(lockedSheet.id);
+
+          const { data: existingGoals } = await supabase
+            .from('goals')
+            .select('thrust_area_id, title, description, uom_type, target, target_date, weightage')
+            .eq('sheet_id', lockedSheet.id)
+            .order('created_at');
+
+          if (existingGoals && existingGoals.length > 0) {
+            const formGoals = existingGoals.map(g => ({
+              thrust_area_id: g.thrust_area_id ?? '',
+              title: g.title ?? '',
+              description: g.description ?? '',
+              uom_type: g.uom_type ?? 'min',
+              target: g.uom_type === 'timeline' || g.uom_type === 'zero'
+                ? ''
+                : String(g.target ?? ''),
+              target_date: g.uom_type === 'timeline' ? (g.target_date ?? '') : '',
+              weightage: String(g.weightage ?? ''),
+            }));
+            setGoals(formGoals);
+            setFieldErrors(formGoals.map(() => ({})));
+          }
         }
       }
     }
@@ -230,6 +274,41 @@ export default function NewGoalsPage() {
     : totalWeightage > 100
       ? 'bg-red-500'
       : 'bg-indigo-500';
+
+  // ── Submit sheet (status → submitted, requires total = 100%) ────────────────
+  async function submitSheet() {
+    setTouched(true);
+    const { errors, weightageError: we, isValid } = validateGoals(goals, { requireTotal: true });
+    setFieldErrors(errors);
+    setWeightageError(we);
+    if (!isValid) return;
+
+    setIsSubmitting(true);
+    setSubmitError('');
+
+    startTransition(async () => {
+      try {
+        // Must have a saved sheet to submit
+        if (!sheetId) throw new Error('Save as draft first before submitting.');
+
+        // Update sheet status → submitted
+        const { error: statusErr } = await supabase
+          .from('goal_sheets')
+          .update({ status: 'submitted' })
+          .eq('id', sheetId);
+
+        if (statusErr) throw new Error(statusErr.message);
+
+        setSheetStatus('submitted');
+        setIsSubmitted(true);
+        setTimeout(() => router.push('/employee/dashboard'), 1500);
+      } catch (err) {
+        setSubmitError(err.message ?? 'An unexpected error occurred.');
+      } finally {
+        setIsSubmitting(false);
+      }
+    });
+  }
 
   // ── Save as draft ────────────────────────────────────────────────────────────
   async function saveDraft() {
@@ -581,8 +660,8 @@ export default function NewGoalsPage() {
           </div>
         )}
 
-        {/* Success */}
-        {submitSuccess && (
+        {/* Draft saved success */}
+        {submitSuccess && !isSubmitted && (
           <div role="status" id="submit-success" className="mt-5 flex items-center gap-2.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-400">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
               <path d="M20 6L9 17l-5-5" />
@@ -591,27 +670,62 @@ export default function NewGoalsPage() {
           </div>
         )}
 
+        {/* Submitted success */}
+        {isSubmitted && (
+          <div role="status" id="submit-sheet-success" className="mt-5 flex items-center gap-2.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-400">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
+              <path d="M20 6L9 17l-5-5" />
+            </svg>
+            Goal sheet submitted for approval! Redirecting…
+          </div>
+        )}
+
+        {/* Read-only banner when already submitted/approved */}
+        {isReadOnly && !isSubmitted && (
+          <div className="mt-5 flex items-center gap-2.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-400">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+              <rect x="3" y="11" width="18" height="11" rx="2"/>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+            This goal sheet is <strong className="font-semibold">{sheetStatus}</strong> and cannot be edited.
+          </div>
+        )}
+
         {/* Actions */}
         <div className="mt-6 flex items-center justify-between gap-4">
           <button
-            id="cancel-btn"
+            id="back-dashboard-btn"
             type="button"
             onClick={() => router.push('/employee/dashboard')}
-            disabled={isSaving}
+            disabled={isSaving || isSubmitting}
             className="px-5 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:text-white hover:bg-slate-700/60 transition-colors disabled:opacity-50"
           >
-            Cancel
+            ← Dashboard
           </button>
 
-          <button
-            id="save-draft-btn"
-            type="button"
-            onClick={saveDraft}
-            disabled={isSaving || submitSuccess}
-            className="px-8 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-semibold text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:ring-offset-2 focus:ring-offset-slate-800 disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
-          >
-            {isSaving ? <><Spinner />Saving…</> : 'Save as Draft'}
-          </button>
+          {!isReadOnly && (
+            <div className="flex items-center gap-3">
+              <button
+                id="save-draft-btn"
+                type="button"
+                onClick={saveDraft}
+                disabled={isSaving || isSubmitting || submitSuccess || isSubmitted}
+                className="px-6 py-2.5 rounded-lg border border-slate-600 hover:border-slate-500 text-slate-300 hover:text-white font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {isSaving ? <><Spinner />Saving…</> : 'Save Draft'}
+              </button>
+
+              <button
+                id="submit-sheet-btn"
+                type="button"
+                onClick={submitSheet}
+                disabled={isSaving || isSubmitting || submitSuccess || isSubmitted}
+                className="px-8 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-semibold text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:ring-offset-2 focus:ring-offset-slate-800 disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {isSubmitting ? <><Spinner />Submitting…</> : 'Submit for Approval'}
+              </button>
+            </div>
+          )}
         </div>
 
         <p className="text-center text-slate-600 text-xs mt-8">
