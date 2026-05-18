@@ -464,32 +464,88 @@ export default function NewGoalsPage() {
           </div>
         </div>
 
-        {/* Weightage meter */}
-        <div className="bg-slate-800/60 backdrop-blur-sm border border-slate-700/60 rounded-2xl p-5 mb-6">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-medium text-slate-300">Weightage</span>
-            <span className={`text-sm font-bold tabular-nums ${totalWeightage === 100 ? 'text-emerald-400' : totalWeightage > 100 ? 'text-red-400' : 'text-indigo-400'}`}>
-              Total: {totalWeightage}% / 100%
-            </span>
-          </div>
-          <div className="w-full h-2 bg-slate-700 rounded-full overflow-hidden">
-            <div
-              className={`h-2 rounded-full transition-all duration-300 ${meterColor}`}
-              style={{ width: `${Math.min(totalWeightage, 100)}%` }}
-            />
-          </div>
-          {weightageError && touched && (
-            <p role="alert" id="weightage-error" className="mt-2 text-xs text-red-400 flex items-center gap-1">
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-                <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1Zm-.75 3.75a.75.75 0 0 1 1.5 0v3.5a.75.75 0 0 1-1.5 0v-3.5Zm.75 7a.875.875 0 1 1 0-1.75.875.875 0 0 1 0 1.75Z" />
-              </svg>
-              {weightageError}
+        {/* Sticky Progress HUD */}
+        {!isReadOnly ? (
+          <div className="sticky top-16 z-30 mb-6 bg-slate-900/80 backdrop-blur-md border border-slate-700/80 rounded-2xl p-4 shadow-[0_8px_32px_rgba(0,0,0,0.5)] transition-all duration-300">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex-1">
+                <div className="flex items-center justify-between text-xs font-semibold mb-1.5">
+                  <span className="text-slate-400">Total Goal Weightage</span>
+                  <span className={
+                    totalWeightage === 100 ? "text-emerald-400 font-bold" :
+                    totalWeightage > 100 ? "text-red-400 font-bold" : "text-indigo-400"
+                  }>
+                    Total: {totalWeightage}% / 100%
+                  </span>
+                </div>
+                <div className="w-full h-2.5 bg-slate-800 rounded-full overflow-hidden border border-slate-700/50">
+                  <div
+                    className={`h-full transition-all duration-300 rounded-full ${
+                      totalWeightage === 100 ? "bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.4)]" :
+                      totalWeightage > 100 ? "bg-red-500" : "bg-indigo-500"
+                    }`}
+                    style={{ width: `${Math.min(totalWeightage, 100)}%` }}
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between sm:justify-end gap-5">
+                <div className="text-right">
+                  <p className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider">Goals</p>
+                  <p className={`text-base font-bold ${goals.length > 8 ? 'text-red-400' : 'text-white'}`}>
+                    {goals.length} <span className="text-xs text-slate-500">/ 8</span>
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    id="hud-save-draft-btn"
+                    type="button"
+                    onClick={saveDraft}
+                    disabled={isSaving || isSubmitting || submitSuccess || isSubmitted || totalWeightage !== 100}
+                    className="px-4 py-2 rounded-lg border border-slate-600 hover:border-slate-500 text-slate-300 hover:text-white text-xs font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isSaving ? 'Saving…' : 'Save Draft'}
+                  </button>
+                  <button
+                    id="hud-submit-sheet-btn"
+                    type="button"
+                    onClick={submitSheet}
+                    disabled={isSaving || isSubmitting || submitSuccess || isSubmitted || totalWeightage !== 100}
+                    className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    {isSubmitting ? 'Submitting…' : 'Submit'}
+                  </button>
+                </div>
+              </div>
+            </div>
+            {weightageError && touched && (
+              <p role="alert" id="weightage-error" className="mt-2 text-xs text-red-400 flex items-center gap-1">
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                  <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1Zm-.75 3.75a.75.75 0 0 1 1.5 0v3.5a.75.75 0 0 1-1.5 0v-3.5Zm.75 7a.875.875 0 1 1 0-1.75.875.875 0 0 1 0 1.75Z" />
+                </svg>
+                {weightageError}
+              </p>
+            )}
+            <p className="text-[10px] text-slate-500 mt-2">
+              Each goal min {MIN_WEIGHTAGE}% · Total must equal 100%
             </p>
-          )}
-          <p className="text-xs text-slate-500 mt-2">
-            {goals.length}/{MAX_GOALS} goals · Each goal min {MIN_WEIGHTAGE}% · Total must equal 100%
-          </p>
-        </div>
+          </div>
+        ) : (
+          <div className="bg-slate-800/60 backdrop-blur-sm border border-slate-700/60 rounded-2xl p-5 mb-6">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-medium text-slate-300">Weightage</span>
+              <span className={`text-sm font-bold tabular-nums ${totalWeightage === 100 ? 'text-emerald-400' : totalWeightage > 100 ? 'text-red-400' : 'text-indigo-400'}`}>
+                Total: {totalWeightage}% / 100%
+              </span>
+            </div>
+            <div className="w-full h-2 bg-slate-700 rounded-full overflow-hidden">
+              <div
+                className={`h-2 rounded-full transition-all duration-300 ${meterColor}`}
+                style={{ width: `${Math.min(totalWeightage, 100)}%` }}
+              />
+            </div>
+          </div>
+        )}
 
         {/* Goal cards */}
         <div className="space-y-4">
