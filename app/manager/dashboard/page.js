@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase-browser';
+import { useToast } from '@/components/ToastProvider';
 
 // ─── Shared UI ────────────────────────────────────────────────────────────────
 
@@ -47,6 +48,7 @@ function StatusBadge({ status }) {
 export default function ManagerDashboard() {
   const router = useRouter();
   const supabase = createClient();
+  const { showToast } = useToast();
 
   const [managerName, setManagerName] = useState('');
   const [cycle, setCycle]             = useState(null);
@@ -70,7 +72,9 @@ export default function ManagerDashboard() {
         .maybeSingle();
       console.log('error:', cycleErr);
       if (!activeCycle) {
-        setLoadError('No active goal cycle. Contact your administrator.');
+        const msg = 'No active goal cycle. Contact your administrator.';
+        setLoadError(msg);
+        showToast(msg);
         setLoading(false);
         return;
       }
@@ -136,7 +140,7 @@ export default function ManagerDashboard() {
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
     } catch (err) {
-      alert(err.message);
+      showToast(err.message ?? 'An unexpected error occurred during export.');
     } finally {
       setExporting(false);
     }

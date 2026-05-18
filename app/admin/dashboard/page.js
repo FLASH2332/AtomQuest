@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase-browser';
+import { useToast } from '@/components/ToastProvider';
 
 // ─── Shared UI ────────────────────────────────────────────────────────────────
 
@@ -47,6 +48,7 @@ function StatusBadge({ status }) {
 export default function AdminDashboard() {
   const router = useRouter();
   const supabase = createClient();
+  const { showToast } = useToast();
 
   const [adminProfile, setAdminProfile] = useState(null);
   const [cycle, setCycle]               = useState(null);
@@ -73,7 +75,9 @@ export default function AdminDashboard() {
         .maybeSingle();
       console.log('error:', cycleErr);
       if (!activeCycle) {
-        setLoadError('No active goal cycle found.');
+        const msg = 'No active goal cycle found.';
+        setLoadError(msg);
+        showToast(msg);
         setLoading(false);
         return;
       }
@@ -195,7 +199,9 @@ export default function AdminDashboard() {
       setActionSuccess('Goal unlocked successfully and logged to audit trails.');
       setTimeout(() => setActionSuccess(''), 3000);
     } catch (err) {
-      setActionError(err.message);
+      const msg = err.message ?? 'An unexpected error occurred during unlock.';
+      setActionError(msg);
+      showToast(msg);
     }
   }
 

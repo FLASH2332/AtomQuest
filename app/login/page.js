@@ -2,10 +2,12 @@
 
 import { useState, useTransition } from 'react';
 import { login } from './actions';
+import { useToast } from '@/components/ToastProvider';
 
 export default function LoginPage() {
   const [error, setError] = useState('');
   const [isPending, startTransition] = useTransition();
+  const { showToast } = useToast();
 
   /**
    * @param {React.FormEvent<HTMLFormElement>} e
@@ -20,6 +22,7 @@ export default function LoginPage() {
       // login() either redirects (returns nothing) or returns {error}.
       if (result?.error) {
         setError(result.error);
+        showToast(result.error);
       }
     });
   }

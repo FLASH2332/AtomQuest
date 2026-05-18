@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase-browser';
 import { computeScore } from '@/lib/scores';
+import { useToast } from '@/components/ToastProvider';
 
 // ─── Quarter helpers ──────────────────────────────────────────────────────────
 
@@ -82,6 +83,7 @@ function scoreColor(score) {
 export default function CheckInPage() {
   const router  = useRouter();
   const supabase = createClient();
+  const { showToast } = useToast();
 
   const [cycle, setCycle]                   = useState(null);
   const [currentQuarter, setCurrentQuarter] = useState(null);
@@ -106,7 +108,9 @@ export default function CheckInPage() {
       console.log('error:', cycleErr);
 
       if (cycleErr || !activeCycle) {
-        setLoadError(cycleErr?.message || 'No active goal cycle. Contact your administrator.');
+        const msg = cycleErr?.message || 'No active goal cycle. Contact your administrator.';
+        setLoadError(msg);
+        showToast(msg);
         setLoading(false);
         return;
       }
@@ -296,7 +300,9 @@ export default function CheckInPage() {
       }, 3000);
     } catch (err) {
       console.log('error:', err);
-      setSaveState(prev => ({ ...prev, [goal.id]: { saving: false, error: err.message ?? 'Failed to save.', success: false } }));
+      const msg = err.message ?? 'Failed to save.';
+      setSaveState(prev => ({ ...prev, [goal.id]: { saving: false, error: msg, success: false } }));
+      showToast(msg);
     }
   }
 

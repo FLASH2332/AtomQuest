@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase-browser';
+import { useToast } from '@/components/ToastProvider';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -41,6 +42,7 @@ const UOM_LABEL = { min: 'Min', max: 'Max', timeline: 'Timeline', zero: 'Zero' }
 export default function EmployeeDashboard() {
   const router = useRouter();
   const supabase = createClient();
+  const { showToast } = useToast();
 
   const [profile, setProfile]         = useState(null);
   const [cycle, setCycle]             = useState(null);
@@ -71,7 +73,9 @@ export default function EmployeeDashboard() {
         .single();
 
       if (cycleErr || !activeCycle) {
-        setLoadError(cycleErr?.message || 'No active goal cycle. Contact your administrator.');
+        const msg = cycleErr?.message || 'No active goal cycle. Contact your administrator.';
+        setLoadError(msg);
+        showToast(msg);
         setLoading(false);
         return;
       }

@@ -3,6 +3,7 @@
 import { useState, useEffect, useTransition, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase-browser';
+import { useToast } from '@/components/ToastProvider';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const MAX_GOALS = 8;
@@ -105,6 +106,7 @@ function validateGoals(goals, { requireTotal = true } = {}) {
 export default function NewGoalsPage() {
   const router = useRouter();
   const supabase = createClient();
+  const { showToast } = useToast();
 
   const [thrustAreas, setThrustAreas] = useState([]);
   const [activeCycle, setActiveCycle] = useState(null);
@@ -146,7 +148,9 @@ export default function NewGoalsPage() {
         .single();
 
       if (cycleErr || !cycle) {
-        setLoadError('No active goal cycle found. Please contact your administrator.');
+        const msg = 'No active goal cycle found. Please contact your administrator.';
+        setLoadError(msg);
+        showToast(msg);
         return;
       }
       setActiveCycle(cycle);
@@ -159,7 +163,9 @@ export default function NewGoalsPage() {
         .order('name');
 
       if (areasErr) {
-        setLoadError('Failed to load thrust areas. Please refresh.');
+        const msg = 'Failed to load thrust areas. Please refresh.';
+        setLoadError(msg);
+        showToast(msg);
         return;
       }
       setThrustAreas(areas ?? []);
@@ -361,7 +367,10 @@ export default function NewGoalsPage() {
     const { errors, weightageError: we, isValid } = validateGoals(goals, { requireTotal: true });
     setFieldErrors(errors);
     setWeightageError(we);
-    if (!isValid) return;
+    if (!isValid) {
+      showToast(we || 'Please correct the validation errors in the goal sheet.');
+      return;
+    }
 
     setIsSubmitting(true);
     setSubmitError('');
@@ -386,7 +395,9 @@ export default function NewGoalsPage() {
         setIsSubmitted(true);
         setTimeout(() => router.push('/employee/dashboard'), 1500);
       } catch (err) {
-        setSubmitError(err.message ?? 'An unexpected error occurred.');
+        const msg = err.message ?? 'An unexpected error occurred.';
+        setSubmitError(msg);
+        showToast(msg);
       } finally {
         setIsSubmitting(false);
       }
@@ -400,7 +411,10 @@ export default function NewGoalsPage() {
     const { errors, weightageError: we, isValid } = validateGoals(goals, { requireTotal: true });
     setFieldErrors(errors);
     setWeightageError(we);
-    if (!isValid) return;
+    if (!isValid) {
+      showToast(we || 'Please correct the validation errors in the goal sheet.');
+      return;
+    }
 
     setIsSaving(true);
     setSubmitError('');
@@ -415,7 +429,9 @@ export default function NewGoalsPage() {
         setSubmitSuccess(true);
         setTimeout(() => router.push('/employee/dashboard'), 1500);
       } catch (err) {
-        setSubmitError(err.message ?? 'An unexpected error occurred. Please try again.');
+        const msg = err.message ?? 'An unexpected error occurred. Please try again.';
+        setSubmitError(msg);
+        showToast(msg);
       } finally {
         setIsSaving(false);
       }

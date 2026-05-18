@@ -3,6 +3,7 @@
 import { useState, useEffect, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase-browser';
+import { useToast } from '@/components/ToastProvider';
 
 const UOM_OPTIONS = [
   { value: 'min', label: 'Min — higher is better (e.g. Revenue)' },
@@ -45,6 +46,7 @@ function AtomIcon({ size = 28 }) {
 export default function PushSharedGoal({ scope, backPath }) {
   const router = useRouter();
   const supabase = createClient();
+  const { showToast } = useToast();
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -85,7 +87,9 @@ export default function PushSharedGoal({ scope, backPath }) {
         .maybeSingle();
 
       if (cycleErr || !activeCycle) {
-        setLoadError('No active goal cycle found. Contact your administrator.');
+        const msg = 'No active goal cycle found. Contact your administrator.';
+        setLoadError(msg);
+        showToast(msg);
         setLoading(false);
         return;
       }
@@ -107,7 +111,9 @@ export default function PushSharedGoal({ scope, backPath }) {
       
       const { data: emps, error: empsErr } = await query;
       if (empsErr) {
-        setLoadError('Failed to load employees.');
+        const msg = 'Failed to load employees.';
+        setLoadError(msg);
+        showToast(msg);
         setLoading(false);
         return;
       }
@@ -149,7 +155,11 @@ export default function PushSharedGoal({ scope, backPath }) {
     }
 
     setFieldErrors(e);
-    return Object.keys(e).length === 0;
+    const isValid = Object.keys(e).length === 0;
+    if (!isValid) {
+      showToast('Please correct validation errors in the push goal form.');
+    }
+    return isValid;
   };
 
   const handleSubmit = async () => {
@@ -197,7 +207,9 @@ export default function PushSharedGoal({ scope, backPath }) {
         setTimeout(() => router.push(backPath), 2000);
 
       } catch (err) {
-        setSubmitError(err.message ?? 'An unexpected error occurred.');
+        const msg = err.message ?? 'An unexpected error occurred.';
+        setSubmitError(msg);
+        showToast(msg);
       } finally {
         setIsSubmitting(false);
       }
