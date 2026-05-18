@@ -212,8 +212,11 @@ export default function NewGoalsPage() {
   useEffect(() => {
     if (!touched) return;
     const { errors, weightageError: we } = validateGoals(goals);
-    setFieldErrors(errors);
-    setWeightageError(we);
+    const handle = setTimeout(() => {
+      setFieldErrors(errors);
+      setWeightageError(we);
+    }, 0);
+    return () => clearTimeout(handle);
   }, [goals, touched]);
 
   // ── Goal field update ────────────────────────────────────────────────────────

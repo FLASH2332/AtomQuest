@@ -16,8 +16,8 @@ export async function GET() {
     .eq('id', user.id)
     .single();
 
-  if (!profile || profile.role !== 'admin') {
-    return NextResponse.json({ error: 'Forbidden: Admins only' }, { status: 403 });
+  if (!profile || (profile.role !== 'admin' && profile.role !== 'manager')) {
+    return NextResponse.json({ error: 'Forbidden: Admins or Managers only' }, { status: 403 });
   }
 
   // 1. Get active cycle
@@ -32,10 +32,16 @@ export async function GET() {
   }
 
   // 2. Fetch all required data
-  const { data: employees } = await supabase
+  let empQuery = supabase
     .from('profiles')
     .select('id, full_name, department, manager_id')
     .eq('role', 'employee');
+
+  if (profile.role === 'manager') {
+    empQuery = empQuery.eq('manager_id', user.id);
+  }
+
+  const { data: employees } = await empQuery;
 
   const { data: managers } = await supabase
     .from('profiles')

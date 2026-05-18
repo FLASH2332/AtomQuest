@@ -265,7 +265,7 @@ export default function EmployeeDashboard() {
 
         {!sheet && (
           <div className="text-center py-16">
-            <p className="text-slate-500 text-sm mb-4">You haven't set any goals for this cycle yet.</p>
+            <p className="text-slate-500 text-sm mb-4">You haven&apos;t set any goals for this cycle yet.</p>
             <button
               id="start-goals-btn"
               type="button"

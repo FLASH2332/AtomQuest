@@ -149,7 +149,7 @@ export default function CheckInPage() {
       // Goals for this sheet
       const { data: goalRows, error: goalsErr } = await supabase
         .from('goals')
-        .select('id, title, description, uom_type, target, target_date, weightage, thrust_area_id')
+        .select('id, title, description, uom_type, target, target_date, weightage, thrust_area_id, parent_goal_id')
         .eq('sheet_id', sheet.id)
         .order('created_at');
       console.log('error:', goalsErr);
@@ -413,10 +413,24 @@ export default function CheckInPage() {
                       </span>
                       <span className="text-slate-700">·</span>
                       <span className="text-xs text-slate-500">{UOM_LABEL[goal.uom_type] ?? goal.uom_type}</span>
+                      {goal.parent_goal_id && (
+                        <>
+                          <span className="text-slate-700">·</span>
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-500/10 text-indigo-400 uppercase tracking-wider border border-indigo-500/20">
+                            Shared Goal
+                          </span>
+                        </>
+                      )}
                     </div>
                     <p className="text-sm font-semibold text-white">{goal.title}</p>
-                    {goal.description && (
-                      <p className="text-xs text-slate-400 mt-1 line-clamp-2">{goal.description}</p>
+                    {goal.parent_goal_id ? (
+                      <p className="text-xs text-indigo-300 mt-1 italic">
+                        This shared goal is automatically synchronized with the primary owner&apos;s achievements.
+                      </p>
+                    ) : (
+                      goal.description && (
+                        <p className="text-xs text-slate-400 mt-1 line-clamp-2">{goal.description}</p>
+                      )
                     )}
                   </div>
                   {/* Saved score badge */}
@@ -455,7 +469,7 @@ export default function CheckInPage() {
                           type="date"
                           value={goal.completionDate}
                           onChange={e => updateGoal(goal.id, 'completionDate', e.target.value)}
-                          disabled={state.saving}
+                          disabled={state.saving || !!goal.parent_goal_id}
                           className="w-full px-3 py-2.5 rounded-lg bg-slate-700/60 border border-slate-600 text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:opacity-50 [color-scheme:dark]"
                         />
                       </>
@@ -473,7 +487,7 @@ export default function CheckInPage() {
                           value={goal.actualValue}
                           onChange={e => updateGoal(goal.id, 'actualValue', e.target.value)}
                           placeholder={isZero ? '0 = no incidents' : 'Enter achieved value'}
-                          disabled={state.saving}
+                          disabled={state.saving || !!goal.parent_goal_id}
                           className="w-full px-3 py-2.5 rounded-lg bg-slate-700/60 border border-slate-600 text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:opacity-50"
                         />
                       </>
@@ -489,7 +503,7 @@ export default function CheckInPage() {
                       id={`status-${i}`}
                       value={goal.status}
                       onChange={e => updateGoal(goal.id, 'status', e.target.value)}
-                      disabled={state.saving}
+                      disabled={state.saving || !!goal.parent_goal_id}
                       className="w-full px-3 py-2.5 rounded-lg bg-slate-700/60 border border-slate-600 text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:opacity-50"
                     >
                       {STATUS_OPTS.map(o => (
@@ -544,15 +558,19 @@ export default function CheckInPage() {
 
                 {/* Save button */}
                 <div className="flex justify-end">
-                  <button
-                    id={`save-achievement-${i}`}
-                    type="button"
-                    onClick={() => saveAchievement(goal)}
-                    disabled={state.saving}
-                    className="px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:ring-offset-2 focus:ring-offset-slate-800 disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
-                  >
-                    {state.saving ? <><Spinner />Saving…</> : 'Save Achievement'}
-                  </button>
+                  {!goal.parent_goal_id ? (
+                    <button
+                      id={`save-achievement-${i}`}
+                      type="button"
+                      onClick={() => saveAchievement(goal)}
+                      disabled={state.saving}
+                      className="px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:ring-offset-2 focus:ring-offset-slate-800 disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
+                    >
+                      {state.saving ? <><Spinner />Saving…</> : 'Save Achievement'}
+                    </button>
+                  ) : (
+                    <span className="text-xs text-slate-500 italic">Managed by Primary Owner</span>
+                  )}
                 </div>
               </div>
             );
