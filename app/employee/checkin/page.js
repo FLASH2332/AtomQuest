@@ -255,6 +255,37 @@ export default function CheckInPage() {
       console.log('error:', upsertErr);
       if (upsertErr) throw new Error(upsertErr.message);
 
+      // Sync to child goals if this is a parent goal
+      const { data: children } = await supabase
+        .from('goals')
+        .select('id, target')
+        .eq('parent_goal_id', goal.id);
+      
+      if (children && children.length > 0) {
+        for (const child of children) {
+          let childScore = score;
+          // Recompute score for child just in case
+          if (goal.uom_type === 'timeline') {
+            childScore = computeScore('timeline', goal.completionDate, goal.target_date);
+          } else if (goal.uom_type === 'zero') {
+            childScore = computeScore('zero', Number(goal.actualValue), null);
+          } else {
+            if (!(goal.uom_type === 'max' && Number(goal.actualValue) === 0)) {
+               childScore = computeScore(goal.uom_type, Number(goal.actualValue), Number(child.target));
+            }
+          }
+          
+          await supabase.from('achievements').upsert({
+            goal_id: child.id,
+            quarter: currentQuarter,
+            actual_value: goal.uom_type === 'timeline' ? null : Number(goal.actualValue),
+            completion_date: goal.uom_type === 'timeline' ? goal.completionDate : null,
+            progress_score: childScore,
+            status: goal.status
+          }, { onConflict: 'goal_id,quarter' });
+        }
+      }
+
       // Update local savedScore
       setGoals(prev => prev.map(g => g.id === goal.id ? { ...g, savedScore: score } : g));
       setSaveState(prev => ({ ...prev, [goal.id]: { saving: false, error: '', success: true } }));

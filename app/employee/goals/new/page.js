@@ -23,6 +23,7 @@ function emptyGoal() {
     target: '',
     target_date: '',
     weightage: '',
+    is_shared: false,
   };
 }
 
@@ -178,7 +179,7 @@ export default function NewGoalsPage() {
         // Fetch goals for that sheet
         const { data: existingGoals } = await supabase
           .from('goals')
-          .select('id, thrust_area_id, title, description, uom_type, target, target_date, weightage, is_locked')
+          .select('id, thrust_area_id, title, description, uom_type, target, target_date, weightage, is_locked, is_shared')
           .eq('sheet_id', sheet.id)
           .order('sort_order');
 
@@ -197,6 +198,7 @@ export default function NewGoalsPage() {
             target_date: g.uom_type === 'timeline' ? (g.target_date ?? '') : '',
             weightage: String(g.weightage ?? ''),
             is_locked: !!g.is_locked,
+            is_shared: !!g.is_shared,
           }));
           setGoals(formGoals);
           setFieldErrors(formGoals.map(() => ({})));
@@ -374,6 +376,7 @@ export default function NewGoalsPage() {
                   target_date: targetDateVal,
                   weightage: Number(g.weightage),
                   is_locked: !!g.is_locked,
+                  is_shared: !!g.is_shared,
                   sort_order: goals.indexOf(g)
                 };
 
@@ -511,14 +514,19 @@ export default function NewGoalsPage() {
               <div
                 key={index}
                 id={`goal-card-${index}`}
-                className="bg-slate-800/60 backdrop-blur-sm border border-slate-700/60 rounded-2xl p-6 shadow-lg"
+                className={`bg-slate-800/60 backdrop-blur-sm border ${goal.is_shared ? 'border-indigo-500/40' : 'border-slate-700/60'} rounded-2xl p-6 shadow-lg`}
               >
                 {/* Card header */}
                 <div className="flex items-center justify-between mb-5">
-                  <span className="text-sm font-semibold text-indigo-400 uppercase tracking-wider">
+                  <span className="text-sm font-semibold text-indigo-400 uppercase tracking-wider flex items-center gap-2">
                     Goal {index + 1}
+                    {goal.is_shared && (
+                      <span className="bg-indigo-500/20 text-indigo-300 text-[10px] px-2 py-0.5 rounded-full normal-case tracking-normal border border-indigo-500/30">
+                        Shared KPI
+                      </span>
+                    )}
                   </span>
-                  {goals.length > 1 && !goal.is_locked && !isReadOnly && (
+                  {goals.length > 1 && !goal.is_locked && !isReadOnly && !goal.is_shared && (
                     <button
                       id={`remove-goal-${index}`}
                       type="button"
@@ -544,7 +552,7 @@ export default function NewGoalsPage() {
                       value={goal.thrust_area_id}
                       onChange={e => updateGoal(index, 'thrust_area_id', e.target.value)}
                       className="w-full px-4 py-2.5 rounded-lg bg-slate-700/60 border border-slate-600 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition text-sm disabled:opacity-50"
-                      disabled={isSaving || isReadOnly || goal.is_locked || thrustAreas.length === 0}
+                      disabled={isSaving || isReadOnly || goal.is_locked || goal.is_shared || thrustAreas.length === 0}
                     >
                       <option value="">— Select thrust area —</option>
                       {thrustAreas.map(area => (
@@ -566,7 +574,7 @@ export default function NewGoalsPage() {
                       onChange={e => updateGoal(index, 'title', e.target.value)}
                       placeholder="e.g. Achieve Q2 Sales Revenue Target"
                       className="w-full px-4 py-2.5 rounded-lg bg-slate-700/60 border border-slate-600 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition text-sm disabled:opacity-50"
-                      disabled={isSaving || isReadOnly || goal.is_locked}
+                      disabled={isSaving || isReadOnly || goal.is_locked || goal.is_shared}
                       maxLength={200}
                     />
                     <FieldError message={errs.title} />
@@ -584,7 +592,7 @@ export default function NewGoalsPage() {
                       placeholder="Describe what success looks like…"
                       rows={2}
                       className="w-full px-4 py-2.5 rounded-lg bg-slate-700/60 border border-slate-600 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition text-sm resize-none disabled:opacity-50"
-                      disabled={isSaving || isReadOnly || goal.is_locked}
+                      disabled={isSaving || isReadOnly || goal.is_locked || goal.is_shared}
                       maxLength={1000}
                     />
                   </div>
@@ -601,7 +609,7 @@ export default function NewGoalsPage() {
                         value={goal.uom_type}
                         onChange={e => updateGoal(index, 'uom_type', e.target.value)}
                         className="w-full px-4 py-2.5 rounded-lg bg-slate-700/60 border border-slate-600 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition text-sm disabled:opacity-50"
-                        disabled={isSaving || isReadOnly || goal.is_locked}
+                        disabled={isSaving || isReadOnly || goal.is_locked || goal.is_shared}
                       >
                         {UOM_OPTIONS.map(opt => (
                           <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -623,7 +631,7 @@ export default function NewGoalsPage() {
                             value={goal.target_date}
                             onChange={e => updateGoal(index, 'target_date', e.target.value)}
                             className="w-full px-4 py-2.5 rounded-lg bg-slate-700/60 border border-slate-600 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition text-sm disabled:opacity-50 [color-scheme:dark]"
-                            disabled={isSaving || isReadOnly || goal.is_locked}
+                            disabled={isSaving || isReadOnly || goal.is_locked || goal.is_shared}
                           />
                           <FieldError message={errs.target_date} />
                         </>
@@ -648,7 +656,7 @@ export default function NewGoalsPage() {
                             onChange={e => updateGoal(index, 'target', e.target.value)}
                             placeholder="e.g. 1000000"
                             className="w-full px-4 py-2.5 rounded-lg bg-slate-700/60 border border-slate-600 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition text-sm disabled:opacity-50"
-                            disabled={isSaving || isReadOnly || goal.is_locked}
+                            disabled={isSaving || isReadOnly || goal.is_locked || goal.is_shared}
                           />
                           <FieldError message={errs.target} />
                         </>
