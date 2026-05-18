@@ -109,6 +109,8 @@ export default function NewGoalsPage() {
   const [activeCycle, setActiveCycle] = useState(null);
   const [sheetStatus, setSheetStatus] = useState(null); // null = no sheet yet
   const [sheetId, setSheetId] = useState(null);         // persisted across saves
+  const [dbGoalIds, setDbGoalIds] = useState([]);
+  const [originalGoals, setOriginalGoals] = useState([]);
   const [goals, setGoals] = useState([emptyGoal()]);
   const [fieldErrors, setFieldErrors] = useState([{}]);
   const [weightageError, setWeightageError] = useState(null);
@@ -181,6 +183,8 @@ export default function NewGoalsPage() {
           .order('sort_order');
 
         if (existingGoals && existingGoals.length > 0) {
+          setOriginalGoals(existingGoals);
+          setDbGoalIds(existingGoals.map(g => g.id));
           const formGoals = existingGoals.map(g => ({
             id: g.id,
             thrust_area_id: g.thrust_area_id ?? '',
@@ -297,9 +301,7 @@ export default function NewGoalsPage() {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return;
 
-        // Fetch existing sheet (draft or returned) or create a new one.
-        // We avoid upsert here because Supabase upsert may not return the
-        // existing row id reliably across all versions — explicit fetch is safer.
+        // Fetch existing sheet or create a new one.
         let sheetId;
 
         const { data: existingSheet } = await supabase
@@ -307,7 +309,6 @@ export default function NewGoalsPage() {
           .select('id')
           .eq('employee_id', user.id)
           .eq('cycle_id', activeCycle.id)
-          .in('status', ['draft', 'returned'])
           .maybeSingle();
 
         if (existingSheet) {
@@ -324,52 +325,117 @@ export default function NewGoalsPage() {
           setSheetId(sheetId);
         }
 
-        // Insert all goals
-        const goalsPayload = goals.map((g, index) => {
-          const payload = {
-            sheet_id: sheetId,
-            thrust_area_id: g.thrust_area_id,
-            title: g.title.trim(),
-            description: g.description.trim() || null,
-            uom_type: g.uom_type,
-            target: g.uom_type === 'timeline'
-              ? null
-              : g.uom_type === 'zero'
-                ? 0
-                : Number(g.target),
-            target_date: g.uom_type === 'timeline' ? g.target_date : null,
-            weightage: Number(g.weightage),
-            is_locked: !!g.is_locked,
-            is_shared: false,
-            parent_goal_id: null,
-            sort_order: index,
-          };
-          if (g.id) payload.id = g.id;
-          return payload;
-        });
-
-        // Delete removed goals safely
-        const currentGoalIds = goals.filter(g => g.id).map(g => g.id);
-        if (currentGoalIds.length > 0) {
+        // 1. Delete goals removed by user
+        const currentIds = goals.map(g => g.id).filter(Boolean);
+        const toDelete = dbGoalIds.filter(id => !currentIds.includes(id));
+        if (toDelete.length > 0) {
           const { error: deleteErr } = await supabase
             .from('goals')
             .delete()
-            .eq('sheet_id', sheetId)
-            .not('id', 'in', `(${currentGoalIds.join(',')})`);
-          if (deleteErr) throw new Error(deleteErr.message);
-        } else {
-          const { error: deleteErr } = await supabase
-            .from('goals')
-            .delete()
-            .eq('sheet_id', sheetId);
+            .in('id', toDelete);
           if (deleteErr) throw new Error(deleteErr.message);
         }
 
-        const { error: goalsErr } = await supabase
-          .from('goals')
-          .upsert(goalsPayload);
+        // 2. Update existing goals in place by id
+        const existingGoalsToSave = goals.filter(g => g.id);
+        for (const g of existingGoalsToSave) {
+          const targetVal = g.uom_type === 'timeline'
+            ? null
+            : g.uom_type === 'zero'
+              ? 0
+              : Number(g.target);
+          const targetDateVal = g.uom_type === 'timeline' ? g.target_date : null;
 
-        if (goalsErr) throw new Error(goalsErr.message);
+          // Compare with original goal to check for updates when sheetStatus === 'approved'
+          if (sheetStatus === 'approved') {
+            const orig = originalGoals.find(o => o.id === g.id);
+            if (orig) {
+              const descriptionChanged = (orig.description || '') !== (g.description.trim() || '');
+              const titleChanged = (orig.title || '') !== g.title.trim();
+              const thrustAreaChanged = orig.thrust_area_id !== g.thrust_area_id;
+              const uomChanged = orig.uom_type !== g.uom_type;
+              const targetChanged = orig.target !== null && targetVal !== null 
+                ? Number(orig.target) !== Number(targetVal)
+                : orig.target !== targetVal;
+              const targetDateChanged = (orig.target_date || '') !== (targetDateVal || '');
+              const weightageChanged = Number(orig.weightage) !== Number(g.weightage);
+
+              const hasChanged = titleChanged || descriptionChanged || thrustAreaChanged || uomChanged || targetChanged || targetDateChanged || weightageChanged;
+
+              if (hasChanged) {
+                const updatedGoal = {
+                  id: g.id,
+                  sheet_id: sheetId,
+                  thrust_area_id: g.thrust_area_id,
+                  title: g.title.trim(),
+                  description: g.description.trim() || null,
+                  uom_type: g.uom_type,
+                  target: targetVal,
+                  target_date: targetDateVal,
+                  weightage: Number(g.weightage),
+                  is_locked: !!g.is_locked,
+                  sort_order: goals.indexOf(g)
+                };
+
+                const { error: auditErr } = await supabase
+                  .from('audit_logs')
+                  .insert({
+                    goal_id: g.id,
+                    change_type: 'edit',
+                    changed_by: user.id,
+                    old_value: orig,
+                    new_value: updatedGoal,
+                    reason: 'Employee edited unlocked goal on approved sheet'
+                  });
+                if (auditErr) throw new Error(auditErr.message);
+              }
+            }
+          }
+
+          const { error: updateErr } = await supabase
+            .from('goals')
+            .update({
+              thrust_area_id: g.thrust_area_id,
+              title: g.title.trim(),
+              description: g.description.trim() || null,
+              uom_type: g.uom_type,
+              target: targetVal,
+              target_date: targetDateVal,
+              weightage: Number(g.weightage),
+              is_locked: !!g.is_locked,
+              sort_order: goals.indexOf(g)
+            })
+            .eq('id', g.id);
+          if (updateErr) throw new Error(updateErr.message);
+        }
+
+        // 3. Insert new goals
+        const newGoals = goals.filter(g => !g.id);
+        const newPayload = newGoals.map((g) => ({
+          sheet_id: sheetId,
+          thrust_area_id: g.thrust_area_id,
+          title: g.title.trim(),
+          description: g.description.trim() || null,
+          uom_type: g.uom_type,
+          target: g.uom_type === 'timeline'
+            ? null
+            : g.uom_type === 'zero'
+              ? 0
+              : Number(g.target),
+          target_date: g.uom_type === 'timeline' ? g.target_date : null,
+          weightage: Number(g.weightage),
+          is_locked: !!g.is_locked,
+          is_shared: false,
+          parent_goal_id: null,
+          sort_order: goals.indexOf(g)
+        }));
+
+        if (newPayload.length > 0) {
+          const { error: insertErr } = await supabase
+            .from('goals')
+            .insert(newPayload);
+          if (insertErr) throw new Error(insertErr.message);
+        }
 
         setSubmitSuccess(true);
         setTimeout(() => router.push('/employee/dashboard'), 1500);
