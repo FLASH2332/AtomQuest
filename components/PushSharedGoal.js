@@ -164,114 +164,34 @@ export default function PushSharedGoal({ scope, backPath }) {
 
         const allUsers = [primaryOwner, ...recipients];
 
-        // 1. Fetch sheets for all involved users
-        const { data: existingSheets, error: sheetsErr } = await supabase
-          .from('goal_sheets')
-          .select('id, employee_id, status')
-          .in('employee_id', allUsers)
-          .eq('cycle_id', cycle.id);
-        
-        if (sheetsErr) throw new Error(sheetsErr.message);
-
-        const sheetMap = {}; // employee_id -> sheet object
-        (existingSheets || []).forEach(s => sheetMap[s.employee_id] = s);
-
-        // 2. Count goals per sheet to enforce max 8 goals
-        const sheetIds = (existingSheets || []).map(s => s.id);
-        let goalCounts = {};
-        
-        if (sheetIds.length > 0) {
-          const { data: existingGoals, error: goalsErr } = await supabase
-            .from('goals')
-            .select('id, sheet_id')
-            .in('sheet_id', sheetIds);
-            
-          if (goalsErr) throw new Error(goalsErr.message);
-          
-          (existingGoals || []).forEach(g => {
-            goalCounts[g.sheet_id] = (goalCounts[g.sheet_id] || 0) + 1;
-          });
-        }
-
-        // Validate max goals
-        for (const empId of allUsers) {
-          const sheet = sheetMap[empId];
-          if (sheet) {
-            const count = goalCounts[sheet.id] || 0;
-            if (count >= 8) {
-              const empName = employees.find(e => e.id === empId)?.full_name || 'An employee';
-              throw new Error(`Cannot push goal: ${empName} already has the maximum of 8 goals. Please return their sheet and ask them to remove a goal first.`);
-            }
-          }
-        }
-
-        // 3. Ensure all users have a sheet
-        for (const empId of allUsers) {
-          if (!sheetMap[empId]) {
-            const { data: newSheet, error: insertSheetErr } = await supabase
-              .from('goal_sheets')
-              .insert({ employee_id: empId, cycle_id: cycle.id, status: 'draft' })
-              .select('id, employee_id, status')
-              .single();
-            if (insertSheetErr) throw new Error(insertSheetErr.message);
-            sheetMap[empId] = newSheet;
-          }
-        }
-
-        // 4. Update status to 'returned' for any submitted/approved sheets
-        const sheetsToReturn = Object.values(sheetMap).filter(s => s.status === 'submitted' || s.status === 'approved');
-        if (sheetsToReturn.length > 0) {
-          const { error: updateSheetsErr } = await supabase
-            .from('goal_sheets')
-            .update({ status: 'returned' })
-            .in('id', sheetsToReturn.map(s => s.id));
-          if (updateSheetsErr) throw new Error(updateSheetsErr.message);
-        }
-
-        // 5. Insert Primary Goal
         const targetVal = uomType === 'timeline' ? null : uomType === 'zero' ? 0 : Number(target);
         const targetDateVal = uomType === 'timeline' ? targetDate : null;
 
-        const primaryPayload = {
-          sheet_id: sheetMap[primaryOwner].id,
-          thrust_area_id: thrustAreaId,
+        const payload = {
+          cycleId: cycle.id,
+          primaryOwner,
+          recipients,
+          thrustAreaId,
           title: title.trim(),
           description: description.trim() || null,
-          uom_type: uomType,
+          uomType,
           target: targetVal,
-          target_date: targetDateVal,
+          targetDate: targetDateVal,
           weightage: Number(weightage),
-          is_shared: true,
-          parent_goal_id: null,
+          allUsers,
         };
 
-        const { data: insertedPrimary, error: primaryErr } = await supabase
-          .from('goals')
-          .insert(primaryPayload)
-          .select('id')
-          .single();
-          
-        if (primaryErr) throw new Error(primaryErr.message);
+        const res = await fetch('/api/push-goal', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
 
-        // 6. Insert Copy Goals
-        const copyPayloads = recipients.map(recipientId => ({
-          sheet_id: sheetMap[recipientId].id,
-          thrust_area_id: thrustAreaId,
-          title: title.trim(),
-          description: description.trim() || null,
-          uom_type: uomType,
-          target: targetVal,
-          target_date: targetDateVal,
-          weightage: Number(weightage),
-          is_shared: true,
-          parent_goal_id: insertedPrimary.id,
-        }));
-
-        const { error: copiesErr } = await supabase
-          .from('goals')
-          .insert(copyPayloads);
-          
-        if (copiesErr) throw new Error(copiesErr.message);
+        const result = await res.json();
+        
+        if (!res.ok || result.error) {
+          throw new Error(result.error || 'Failed to push shared goal');
+        }
 
         setSubmitSuccess(true);
         setTimeout(() => router.push(backPath), 2000);

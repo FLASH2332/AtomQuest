@@ -251,6 +251,107 @@ export default function NewGoalsPage() {
       ? 'bg-red-500'
       : 'bg-indigo-500';
 
+  // ── Helper to save goals to DB ─────────────────────────────────────────────
+  async function performSave(user) {
+    let currentSheetId = sheetId;
+
+    const { data: existingSheet } = await supabase
+      .from('goal_sheets')
+      .select('id')
+      .eq('employee_id', user.id)
+      .eq('cycle_id', activeCycle.id)
+      .maybeSingle();
+
+    if (existingSheet) {
+      currentSheetId = existingSheet.id;
+      if (!sheetId) setSheetId(currentSheetId);
+    } else {
+      const { data: newSheet, error: insertSheetErr } = await supabase
+        .from('goal_sheets')
+        .insert({ employee_id: user.id, cycle_id: activeCycle.id, status: 'draft' })
+        .select('id')
+        .single();
+      if (insertSheetErr) throw new Error(insertSheetErr.message);
+      currentSheetId = newSheet.id;
+      setSheetId(currentSheetId);
+    }
+
+    // 1. Delete goals removed by user
+    const currentIds = goals.map(g => g.id).filter(Boolean);
+    const toDelete = dbGoalIds.filter(id => !currentIds.includes(id));
+    if (toDelete.length > 0) {
+      const { error: deleteErr } = await supabase
+        .from('goals')
+        .delete()
+        .in('id', toDelete);
+      if (deleteErr) throw new Error(deleteErr.message);
+    }
+
+    // 2. Update existing goals
+    const existingGoalsToSave = goals.filter(g => g.id);
+    for (const g of existingGoalsToSave) {
+      const targetVal = g.uom_type === 'timeline' ? null : g.uom_type === 'zero' ? 0 : Number(g.target);
+      const targetDateVal = g.uom_type === 'timeline' ? g.target_date : null;
+
+      if (sheetStatus === 'approved') {
+        const orig = originalGoals.find(o => o.id === g.id);
+        if (orig) {
+          const hasChanged = 
+            (orig.description || '') !== (g.description.trim() || '') ||
+            (orig.title || '') !== g.title.trim() ||
+            orig.thrust_area_id !== g.thrust_area_id ||
+            orig.uom_type !== g.uom_type ||
+            (orig.target !== null && targetVal !== null ? Number(orig.target) !== Number(targetVal) : orig.target !== targetVal) ||
+            (orig.target_date || '') !== (targetDateVal || '') ||
+            Number(orig.weightage) !== Number(g.weightage);
+
+          if (hasChanged) {
+            const updatedGoal = {
+              id: g.id, sheet_id: currentSheetId, thrust_area_id: g.thrust_area_id,
+              title: g.title.trim(), description: g.description.trim() || null,
+              uom_type: g.uom_type, target: targetVal, target_date: targetDateVal,
+              weightage: Number(g.weightage), is_locked: !!g.is_locked,
+              is_shared: !!g.is_shared, sort_order: goals.indexOf(g)
+            };
+            const { error: auditErr } = await supabase.from('audit_logs').insert({
+              goal_id: g.id, change_type: 'edit', changed_by: user.id,
+              old_value: orig, new_value: updatedGoal, reason: 'Employee edited unlocked goal on approved sheet'
+            });
+            if (auditErr) throw new Error(auditErr.message);
+          }
+        }
+      }
+
+      const { error: updateErr } = await supabase
+        .from('goals')
+        .update({
+          thrust_area_id: g.thrust_area_id, title: g.title.trim(), description: g.description.trim() || null,
+          uom_type: g.uom_type, target: targetVal, target_date: targetDateVal,
+          weightage: Number(g.weightage), is_locked: !!g.is_locked, sort_order: goals.indexOf(g)
+        })
+        .eq('id', g.id);
+      if (updateErr) throw new Error(updateErr.message);
+    }
+
+    // 3. Insert new goals
+    const newGoals = goals.filter(g => !g.id);
+    const newPayload = newGoals.map((g) => ({
+      sheet_id: currentSheetId, thrust_area_id: g.thrust_area_id, title: g.title.trim(),
+      description: g.description.trim() || null, uom_type: g.uom_type,
+      target: g.uom_type === 'timeline' ? null : g.uom_type === 'zero' ? 0 : Number(g.target),
+      target_date: g.uom_type === 'timeline' ? g.target_date : null,
+      weightage: Number(g.weightage), is_locked: !!g.is_locked, is_shared: false,
+      parent_goal_id: null, sort_order: goals.indexOf(g)
+    }));
+
+    if (newPayload.length > 0) {
+      const { error: insertErr } = await supabase.from('goals').insert(newPayload);
+      if (insertErr) throw new Error(insertErr.message);
+    }
+    
+    return currentSheetId;
+  }
+
   // ── Submit sheet (status → submitted, requires total = 100%) ────────────────
   async function submitSheet() {
     setTouched(true);
@@ -264,14 +365,17 @@ export default function NewGoalsPage() {
 
     startTransition(async () => {
       try {
-        // Must have a saved sheet to submit
-        if (!sheetId) throw new Error('Save as draft first before submitting.');
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+        
+        // Save goals to DB first
+        const currentSheetId = await performSave(user);
 
         // Update sheet status → submitted
         const { error: statusErr } = await supabase
           .from('goal_sheets')
           .update({ status: 'submitted' })
-          .eq('id', sheetId);
+          .eq('id', currentSheetId);
 
         if (statusErr) throw new Error(statusErr.message);
 
@@ -289,8 +393,8 @@ export default function NewGoalsPage() {
   // ── Save as draft ────────────────────────────────────────────────────────────
   async function saveDraft() {
     setTouched(true);
-    // Draft allows incomplete weightage — only per-field errors block save.
-    const { errors, weightageError: we, isValid } = validateGoals(goals, { requireTotal: false });
+    // Strict business rule: Weightage MUST equal 100% even for drafts.
+    const { errors, weightageError: we, isValid } = validateGoals(goals, { requireTotal: true });
     setFieldErrors(errors);
     setWeightageError(we);
     if (!isValid) return;
@@ -303,142 +407,7 @@ export default function NewGoalsPage() {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return;
 
-        // Fetch existing sheet or create a new one.
-        let sheetId;
-
-        const { data: existingSheet } = await supabase
-          .from('goal_sheets')
-          .select('id')
-          .eq('employee_id', user.id)
-          .eq('cycle_id', activeCycle.id)
-          .maybeSingle();
-
-        if (existingSheet) {
-          sheetId = existingSheet.id;
-          setSheetId(sheetId);
-        } else {
-          const { data: newSheet, error: insertSheetErr } = await supabase
-            .from('goal_sheets')
-            .insert({ employee_id: user.id, cycle_id: activeCycle.id, status: 'draft' })
-            .select('id')
-            .single();
-          if (insertSheetErr) throw new Error(insertSheetErr.message);
-          sheetId = newSheet.id;
-          setSheetId(sheetId);
-        }
-
-        // 1. Delete goals removed by user
-        const currentIds = goals.map(g => g.id).filter(Boolean);
-        const toDelete = dbGoalIds.filter(id => !currentIds.includes(id));
-        if (toDelete.length > 0) {
-          const { error: deleteErr } = await supabase
-            .from('goals')
-            .delete()
-            .in('id', toDelete);
-          if (deleteErr) throw new Error(deleteErr.message);
-        }
-
-        // 2. Update existing goals in place by id
-        const existingGoalsToSave = goals.filter(g => g.id);
-        for (const g of existingGoalsToSave) {
-          const targetVal = g.uom_type === 'timeline'
-            ? null
-            : g.uom_type === 'zero'
-              ? 0
-              : Number(g.target);
-          const targetDateVal = g.uom_type === 'timeline' ? g.target_date : null;
-
-          // Compare with original goal to check for updates when sheetStatus === 'approved'
-          if (sheetStatus === 'approved') {
-            const orig = originalGoals.find(o => o.id === g.id);
-            if (orig) {
-              const descriptionChanged = (orig.description || '') !== (g.description.trim() || '');
-              const titleChanged = (orig.title || '') !== g.title.trim();
-              const thrustAreaChanged = orig.thrust_area_id !== g.thrust_area_id;
-              const uomChanged = orig.uom_type !== g.uom_type;
-              const targetChanged = orig.target !== null && targetVal !== null 
-                ? Number(orig.target) !== Number(targetVal)
-                : orig.target !== targetVal;
-              const targetDateChanged = (orig.target_date || '') !== (targetDateVal || '');
-              const weightageChanged = Number(orig.weightage) !== Number(g.weightage);
-
-              const hasChanged = titleChanged || descriptionChanged || thrustAreaChanged || uomChanged || targetChanged || targetDateChanged || weightageChanged;
-
-              if (hasChanged) {
-                const updatedGoal = {
-                  id: g.id,
-                  sheet_id: sheetId,
-                  thrust_area_id: g.thrust_area_id,
-                  title: g.title.trim(),
-                  description: g.description.trim() || null,
-                  uom_type: g.uom_type,
-                  target: targetVal,
-                  target_date: targetDateVal,
-                  weightage: Number(g.weightage),
-                  is_locked: !!g.is_locked,
-                  is_shared: !!g.is_shared,
-                  sort_order: goals.indexOf(g)
-                };
-
-                const { error: auditErr } = await supabase
-                  .from('audit_logs')
-                  .insert({
-                    goal_id: g.id,
-                    change_type: 'edit',
-                    changed_by: user.id,
-                    old_value: orig,
-                    new_value: updatedGoal,
-                    reason: 'Employee edited unlocked goal on approved sheet'
-                  });
-                if (auditErr) throw new Error(auditErr.message);
-              }
-            }
-          }
-
-          const { error: updateErr } = await supabase
-            .from('goals')
-            .update({
-              thrust_area_id: g.thrust_area_id,
-              title: g.title.trim(),
-              description: g.description.trim() || null,
-              uom_type: g.uom_type,
-              target: targetVal,
-              target_date: targetDateVal,
-              weightage: Number(g.weightage),
-              is_locked: !!g.is_locked,
-              sort_order: goals.indexOf(g)
-            })
-            .eq('id', g.id);
-          if (updateErr) throw new Error(updateErr.message);
-        }
-
-        // 3. Insert new goals
-        const newGoals = goals.filter(g => !g.id);
-        const newPayload = newGoals.map((g) => ({
-          sheet_id: sheetId,
-          thrust_area_id: g.thrust_area_id,
-          title: g.title.trim(),
-          description: g.description.trim() || null,
-          uom_type: g.uom_type,
-          target: g.uom_type === 'timeline'
-            ? null
-            : g.uom_type === 'zero'
-              ? 0
-              : Number(g.target),
-          target_date: g.uom_type === 'timeline' ? g.target_date : null,
-          weightage: Number(g.weightage),
-          is_locked: !!g.is_locked,
-          is_shared: false,
-          parent_goal_id: null,
-          sort_order: goals.indexOf(g)
-        }));
-
-        if (newPayload.length > 0) {
-          const { error: insertErr } = await supabase
-            .from('goals')
-            .insert(newPayload);
-          if (insertErr) throw new Error(insertErr.message);
-        }
+        await performSave(user);
 
         setSubmitSuccess(true);
         setTimeout(() => router.push('/employee/dashboard'), 1500);
@@ -766,7 +735,7 @@ export default function NewGoalsPage() {
                 id="save-draft-btn"
                 type="button"
                 onClick={saveDraft}
-                disabled={isSaving || isSubmitting || submitSuccess || isSubmitted}
+                disabled={isSaving || isSubmitting || submitSuccess || isSubmitted || totalWeightage !== 100}
                 className="px-6 py-2.5 rounded-lg border border-slate-600 hover:border-slate-500 text-slate-300 hover:text-white font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
                 {isSaving ? <><Spinner />Saving…</> : 'Save Draft'}
