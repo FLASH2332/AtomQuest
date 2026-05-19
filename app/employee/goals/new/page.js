@@ -407,8 +407,8 @@ export default function NewGoalsPage() {
   // ── Save as draft ────────────────────────────────────────────────────────────
   async function saveDraft() {
     setTouched(true);
-    // Strict business rule: Weightage MUST equal 100% even for drafts.
-    const { errors, weightageError: we, isValid } = validateGoals(goals, { requireTotal: true });
+    // Draft saves are allowed even if total weightage is not 100%.
+    const { errors, weightageError: we, isValid } = validateGoals(goals, { requireTotal: false });
     setFieldErrors(errors);
     setWeightageError(we);
     if (!isValid) {
@@ -810,7 +810,7 @@ export default function NewGoalsPage() {
                 id="save-draft-btn"
                 type="button"
                 onClick={saveDraft}
-                disabled={isSaving || isSubmitting || submitSuccess || isSubmitted || totalWeightage !== 100}
+                disabled={isSaving || isSubmitting || submitSuccess || isSubmitted}
                 className="px-6 py-2.5 rounded-lg border border-slate-600 hover:border-slate-500 text-slate-300 hover:text-white font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
                 {isSaving ? <><Spinner />Saving…</> : 'Save Draft'}
