@@ -89,17 +89,28 @@ Employees set goals with measurable targets, managers review and approve them, a
 
 ---
 
+## Architecture Diagrams
+
+### System Architecture
+![System Architecture](./public/arch-system.png)
+
+### User Roles & Access
+![User Roles](./public/arch-roles.png)
+
+### Goal Lifecycle
+![Goal Lifecycle](./public/arch-lifecycle.png)
+
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│                    Browser Client                    │
-│         React Components + Tailwind CSS              │
+│                    Browser Client                   │
+│         React Components + Tailwind CSS             │
 └──────────────────────┬──────────────────────────────┘
                        │ HTTPS
 ┌──────────────────────▼──────────────────────────────┐
-│                  Next.js on Vercel                   │
-│                                                      │
+│                  Next.js on Vercel                  │
+│                                                     │
 │  ┌─────────────────┐    ┌──────────────────────┐    │
 │  │  App Router     │    │   API Routes         │    │
 │  │  Pages &        │    │  /api/create-user    │    │
@@ -108,21 +119,21 @@ Employees set goals with measurable targets, managers review and approve them, a
 │  │  Middleware     │    │                      │    │
 │  │  (Auth guard)   │    │  Service Role Key    │    │
 │  └────────┬────────┘    └──────────┬───────────┘    │
-└───────────┼──────────────────────┼─────────────────┘
+└───────────┼──────────────────────┼──────────────────┘
             │ Supabase JS          │ Supabase Admin
-┌───────────▼──────────────────────▼─────────────────┐
-│                    Supabase                          │
-│                                                      │
-│  ┌──────────────┐    ┌──────────────────────────┐   │
-│  │  Auth        │    │  PostgreSQL              │   │
-│  │  (Sessions,  │    │  (profiles, goals,       │   │
-│  │   Users)     │    │   achievements,          │   │
-│  │              │    │   audit_logs, ...)       │   │
-│  └──────────────┘    │                          │   │
-│                      │  Row Level Security      │   │
-│                      │  on all tables           │   │
-│                      └──────────────────────────┘   │
-└─────────────────────────────────────────────────────┘
+┌───────────▼──────────────────────▼──────────────────┐
+│                    Supabase                        │
+│                                                    │
+│  ┌──────────────┐    ┌──────────────────────────┐  │
+│  │  Auth        │    │  PostgreSQL              │  │
+│  │  (Sessions,  │    │  (profiles, goals,       │  │
+│  │   Users)     │    │   achievements,          │  │
+│  │              │    │   audit_logs, ...)       │  │
+│  └──────────────┘    │                          │  │
+│                      │  Row Level Security      │  │
+│                      │  on all tables           │  │
+│                      └──────────────────────────┘  │
+└────────────────────────────────────────────────────┘
 ```
 
 **Request Flow:**
