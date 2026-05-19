@@ -297,6 +297,28 @@ The app is deployed on **Vercel** with automatic deploys on push to `main`.
    - `SUPABASE_SERVICE_ROLE_KEY`
 4. Deploy
 
+## Demo Notes
+
+### Active Cycle Dates
+The demo cycle (FY 2025-26) is configured as:
+
+| Phase | Opens | Status |
+|---|---|---|
+| Goal Setting | May 1 2025 | ✅ Open |
+| Q1 Check-in | Jul 1 2025 | ✅ Past |
+| Q2 Check-in | Oct 1 2025 | ✅ Past |
+| Q3 Check-in | Jan 1 2026 | ✅ Past |
+| Q4 Check-in | Mar 1 2026 | ✅ Active |
+
+Today (May 2026) falls in the Q4 check-in window. Goal setting window 
+enforcement is not strictly blocked — employees can create and submit 
+goals outside the window for demo flexibility.
+
+### Known Limitations
+- Goal setting window is not strictly enforced — planned for production
+- Escalation overdue counter shows large numbers — correct behavior based on cycle start date
+- Cron job requires Vercel Pro for automatic scheduling — use manual trigger in Admin → Escalations
+
 ---
 
 ## Future Enhancements
