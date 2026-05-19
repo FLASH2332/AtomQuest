@@ -156,7 +156,7 @@ export default function ManagerReviewPage({ params }) {
 
     const totalW = updated.reduce((s, g) => s + (Number(g.editWeightage) || 0), 0);
     if (totalW !== 100) {
-      setActionError(`Total weightage is ${totalW}%. Must equal 100% before approving.`);
+      setActionError('Total weightage must equal 100% before approving.');
       valid = false;
     }
     return valid;

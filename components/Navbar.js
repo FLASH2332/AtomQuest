@@ -57,6 +57,7 @@ export default function Navbar({ profile }) {
               <>
                 <Link href="/admin/dashboard" className="hover:text-white transition-colors px-2 py-1 rounded outline-none focus-visible:ring-2 focus-visible:ring-indigo-400">Admin Hub</Link>
                 <Link href="/admin/reports" className="hover:text-white transition-colors px-2 py-1 rounded outline-none focus-visible:ring-2 focus-visible:ring-indigo-400">Reports</Link>
+                <Link href="/admin/analytics" className="hover:text-white transition-colors px-2 py-1 rounded outline-none focus-visible:ring-2 focus-visible:ring-indigo-400">Analytics</Link>
                 <Link href="/admin/audit-logs" className="hover:text-white transition-colors px-2 py-1 rounded outline-none focus-visible:ring-2 focus-visible:ring-indigo-400">Audit Logs</Link>
               </>
             )}
