@@ -197,10 +197,10 @@ export default function ManagerReviewPage({ params }) {
       console.log('error:', lockErr);
       if (lockErr) throw new Error(lockErr.message);
 
-      // 3. Set sheet status → approved
+      // 3. Set sheet status → approved, recording approval time
       const { error: approveErr } = await supabase
         .from('goal_sheets')
-        .update({ status: 'approved' })
+        .update({ status: 'approved', approved_at: new Date().toISOString() })
         .eq('id', sheetId);
       console.log('error:', approveErr);
       if (approveErr) throw new Error(approveErr.message);
