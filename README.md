@@ -334,6 +334,10 @@ goals outside the window for demo flexibility.
 
 ---
 
+## ESCALATION
+
+![alt text](<WhatsApp Image 2026-05-19 at 11.16.19.jpeg>)
+
 ## Built By
 
 Jayadev D — [github.com/FLASH2332](https://github.com/FLASH2332) · [linkedin.com/in/jayadev-d](https://linkedin.com/in/jayadev-d)
