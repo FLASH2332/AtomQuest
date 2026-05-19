@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase-browser';
+import { useToast } from '@/components/ToastProvider';
 
 // ─── Shared UI ────────────────────────────────────────────────────────────────
 
@@ -47,12 +48,14 @@ function StatusBadge({ status }) {
 export default function ManagerDashboard() {
   const router = useRouter();
   const supabase = createClient();
+  const { showToast } = useToast();
 
   const [managerName, setManagerName] = useState('');
   const [cycle, setCycle]             = useState(null);
   const [team, setTeam]               = useState([]); // [{profile, sheet}]
   const [loading, setLoading]         = useState(true);
   const [loadError, setLoadError]     = useState('');
+  const [exporting, setExporting]     = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -69,7 +72,9 @@ export default function ManagerDashboard() {
         .maybeSingle();
       console.log('error:', cycleErr);
       if (!activeCycle) {
-        setLoadError('No active goal cycle. Contact your administrator.');
+        const msg = 'No active goal cycle. Contact your administrator.';
+        setLoadError(msg);
+        showToast(msg);
         setLoading(false);
         return;
       }
@@ -89,6 +94,18 @@ export default function ManagerDashboard() {
         return;
       }
 
+      // Set manager's actual name
+      const { data: mgrProfile } = await supabase
+        .from('profiles')
+        .select('full_name')
+        .eq('id', user.id)
+        .single();
+      if (mgrProfile) {
+        setManagerName(mgrProfile.full_name);
+      } else {
+        setManagerName('Manager');
+      }
+
       // Goal sheets for all direct reports in this cycle (separate flat query)
       const memberIds = members.map(m => m.id);
       const { data: sheets, error: sheetsErr } = await supabase
@@ -106,6 +123,28 @@ export default function ManagerDashboard() {
     }
     load();
   }, []);
+
+  async function handleExport() {
+    try {
+      setExporting(true);
+      const res = await fetch('/api/export');
+      if (!res.ok) throw new Error('Failed to download CSV');
+      
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'team_goals_export.csv';
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (err) {
+      showToast(err.message ?? 'An unexpected error occurred during export.');
+    } finally {
+      setExporting(false);
+    }
+  }
 
 
 
@@ -145,6 +184,29 @@ export default function ManagerDashboard() {
               <h1 className="text-2xl font-bold text-white tracking-tight">Team Dashboard</h1>
               <p className="text-slate-400 text-sm mt-0.5">{managerName} · {cycle?.name}</p>
             </div>
+          </div>
+          <div className="flex items-center gap-3 flex-wrap">
+            <button
+              type="button"
+              onClick={handleExport}
+              disabled={exporting}
+              className="px-4 py-2.5 rounded-lg border border-slate-700 hover:bg-slate-800 text-slate-300 font-semibold text-sm transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              <svg className="w-4 h-4 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              {exporting ? 'Exporting...' : 'Export Team'}
+            </button>
+            <button
+              type="button"
+              onClick={() => router.push('/manager/push-goal')}
+              className="px-5 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-semibold text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:ring-offset-2 focus:ring-offset-slate-800 flex items-center justify-center gap-2"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+              Push Shared Goal
+            </button>
           </div>
         </div>
 

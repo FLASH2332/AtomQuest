@@ -3,6 +3,7 @@
 import { useState, useEffect, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase-browser';
+import { useToast } from '@/components/ToastProvider';
 
 // ─── Shared UI ────────────────────────────────────────────────────────────────
 
@@ -40,6 +41,7 @@ export default function ManagerReviewPage({ params }) {
   const { sheetId } = use(params);
   const router = useRouter();
   const supabase = createClient();
+  const { showToast } = useToast();
 
   const [sheet, setSheet]           = useState(null);
   const [employee, setEmployee]     = useState(null);
@@ -67,7 +69,9 @@ export default function ManagerReviewPage({ params }) {
         .maybeSingle();
       console.log('error:', sheetErr);
       if (!sheetRow) {
-        setLoadError('Goal sheet not found.');
+        const msg = 'Goal sheet not found.';
+        setLoadError(msg);
+        showToast(msg);
         setLoading(false);
         return;
       }
@@ -217,7 +221,9 @@ export default function ManagerReviewPage({ params }) {
       setActionSuccess('Sheet approved and all goals locked.');
       setTimeout(() => router.push('/manager/dashboard'), 1500);
     } catch (err) {
-      setActionError(err.message ?? 'An unexpected error occurred.');
+      const msg = err.message ?? 'An unexpected error occurred.';
+      setActionError(msg);
+      showToast(msg);
     } finally {
       setIsActing(false);
     }
@@ -227,7 +233,9 @@ export default function ManagerReviewPage({ params }) {
   async function handleReturn() {
     setActionError('');
     if (!comment.trim()) {
-      setActionError('A comment is required when returning a sheet to the employee.');
+      const msg = 'A comment is required when returning a sheet to the employee.';
+      setActionError(msg);
+      showToast(msg);
       return;
     }
 
@@ -257,7 +265,9 @@ export default function ManagerReviewPage({ params }) {
       setActionSuccess('Sheet returned to employee with your comment.');
       setTimeout(() => router.push('/manager/dashboard'), 1500);
     } catch (err) {
-      setActionError(err.message ?? 'An unexpected error occurred.');
+      const msg = err.message ?? 'An unexpected error occurred.';
+      setActionError(msg);
+      showToast(msg);
     } finally {
       setIsActing(false);
     }

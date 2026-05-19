@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase-browser';
+import { useToast } from '@/components/ToastProvider';
 
 // ─── Shared UI ────────────────────────────────────────────────────────────────
 
@@ -47,6 +48,7 @@ function StatusBadge({ status }) {
 export default function AdminDashboard() {
   const router = useRouter();
   const supabase = createClient();
+  const { showToast } = useToast();
 
   const [adminProfile, setAdminProfile] = useState(null);
   const [cycle, setCycle]               = useState(null);
@@ -73,7 +75,9 @@ export default function AdminDashboard() {
         .maybeSingle();
       console.log('error:', cycleErr);
       if (!activeCycle) {
-        setLoadError('No active goal cycle found.');
+        const msg = 'No active goal cycle found.';
+        setLoadError(msg);
+        showToast(msg);
         setLoading(false);
         return;
       }
@@ -195,6 +199,73 @@ export default function AdminDashboard() {
       setActionSuccess('Goal unlocked successfully and logged to audit trails.');
       setTimeout(() => setActionSuccess(''), 3000);
     } catch (err) {
+      const msg = err.message ?? 'An unexpected error occurred during unlock.';
+      setActionError(msg);
+      showToast(msg);
+    }
+  }
+
+  async function handleUnlockSheet(emp) {
+    if (!emp.sheet) return;
+    
+    const lockedGoals = emp.sheet.goals.filter(g => g.is_locked);
+    if (lockedGoals.length === 0) return;
+
+    if (!confirm(`Are you sure you want to unlock ALL goals for ${emp.full_name}? The employee will be able to edit them again.`)) return;
+
+    setActionError('');
+    setActionSuccess('');
+
+    try {
+      const lockedGoalIds = lockedGoals.map(g => g.id);
+
+      // 1. Update goals is_locked = false
+      const { error: updateErr } = await supabase
+        .from('goals')
+        .update({ is_locked: false })
+        .in('id', lockedGoalIds);
+      if (updateErr) throw new Error(`Failed to unlock goals: ${updateErr.message}`);
+
+      // 1.5 Update sheet status to returned
+      const { error: sheetErr } = await supabase
+        .from('goal_sheets')
+        .update({ status: 'returned' })
+        .eq('id', emp.sheet.id);
+      if (sheetErr) throw new Error(`Failed to set sheet status to returned: ${sheetErr.message}`);
+
+      // 2. Insert audit logs
+      const auditPayloads = lockedGoals.map(g => ({
+        changed_by: adminProfile.id,
+        goal_id: g.id,
+        change_type: 'unlock',
+        old_value: { is_locked: true },
+        new_value: { is_locked: false },
+        reason: 'Admin bulk unlock'
+      }));
+
+      const { error: auditErr } = await supabase
+        .from('audit_logs')
+        .insert(auditPayloads);
+      if (auditErr) throw new Error(`Goals unlocked, but failed to write audit logs: ${auditErr.message}`);
+
+      // 3. Update local state
+      setEmployees(prev => prev.map(e => {
+        if (e.id === emp.id) {
+          return {
+            ...e,
+            sheet: {
+              ...e.sheet,
+              status: 'returned',
+              goals: e.sheet.goals.map(g => ({ ...g, is_locked: false }))
+            }
+          };
+        }
+        return e;
+      }));
+
+      setActionSuccess('All goals unlocked successfully and logged to audit trails.');
+      setTimeout(() => setActionSuccess(''), 3000);
+    } catch (err) {
       setActionError(err.message);
     }
   }
@@ -239,6 +310,16 @@ export default function AdminDashboard() {
               <p className="text-slate-400 text-sm mt-0.5">{adminProfile?.full_name}</p>
             </div>
           </div>
+          <button
+            type="button"
+            onClick={() => router.push('/admin/push-goal')}
+            className="px-5 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-semibold text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:ring-offset-2 focus:ring-offset-slate-800 flex items-center justify-center gap-2"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+            Push Shared Goal
+          </button>
         </div>
 
         {/* Action alerts */}
@@ -322,31 +403,45 @@ export default function AdminDashboard() {
                         ) : emp.sheet.goals.length === 0 ? (
                           <p className="text-xs text-slate-500 italic py-2">No goals added to this sheet.</p>
                         ) : (
-                          <div className="space-y-3 mt-3">
-                            {emp.sheet.goals.map((g) => (
-                              <div key={g.id} className="flex items-center justify-between gap-3 p-3 rounded-lg bg-slate-800/80 border border-slate-700">
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-center gap-2 mb-1">
-                                    {g.is_locked ? (
-                                      <span className="text-[10px] font-bold uppercase tracking-wide text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded">Locked</span>
-                                    ) : (
-                                      <span className="text-[10px] font-bold uppercase tracking-wide text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded">Unlocked</span>
-                                    )}
-                                    <span className="text-xs text-slate-400">{g.weightage}%</span>
+                          <div>
+                            <div className="flex items-center justify-between mb-3 mt-1">
+                              <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Goals ({emp.sheet.goals.length})</h3>
+                              {emp.sheet.goals.some(g => g.is_locked) && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleUnlockSheet(emp)}
+                                  className="px-3 py-1.5 rounded text-xs font-medium text-amber-400 border border-amber-500/30 hover:bg-amber-500/10 transition-colors"
+                                >
+                                  Unlock Entire Sheet
+                                </button>
+                              )}
+                            </div>
+                            <div className="space-y-3">
+                              {emp.sheet.goals.map((g) => (
+                                <div key={g.id} className="flex items-center justify-between gap-3 p-3 rounded-lg bg-slate-800/80 border border-slate-700">
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2 mb-1">
+                                      {g.is_locked ? (
+                                        <span className="text-[10px] font-bold uppercase tracking-wide text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded">Locked</span>
+                                      ) : (
+                                        <span className="text-[10px] font-bold uppercase tracking-wide text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded">Unlocked</span>
+                                      )}
+                                      <span className="text-xs text-slate-400">{g.weightage}%</span>
+                                    </div>
+                                    <p className="text-sm text-slate-200 truncate">{g.title}</p>
                                   </div>
-                                  <p className="text-sm text-slate-200 truncate">{g.title}</p>
+                                  {g.is_locked && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleUnlockGoal(g)}
+                                      className="shrink-0 px-3 py-1.5 rounded text-xs font-medium text-amber-400 border border-amber-500/30 hover:bg-amber-500/10 transition-colors"
+                                    >
+                                      Unlock
+                                    </button>
+                                  )}
                                 </div>
-                                {g.is_locked && (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleUnlockGoal(g)}
-                                    className="shrink-0 px-3 py-1.5 rounded text-xs font-medium text-amber-400 border border-amber-500/30 hover:bg-amber-500/10 transition-colors"
-                                  >
-                                    Unlock
-                                  </button>
-                                )}
-                              </div>
-                            ))}
+                              ))}
+                            </div>
                           </div>
                         )}
                       </div>

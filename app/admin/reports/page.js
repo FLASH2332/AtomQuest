@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase-browser';
+import { useToast } from '@/components/ToastProvider';
 
 // ─── Shared UI ────────────────────────────────────────────────────────────────
 
@@ -47,6 +48,7 @@ function CompletionPill({ completed }) {
 export default function AdminReports() {
   const router = useRouter();
   const supabase = createClient();
+  const { showToast } = useToast();
 
   const [adminProfile, setAdminProfile] = useState(null);
   const [cycle, setCycle]               = useState(null);
@@ -70,7 +72,9 @@ export default function AdminReports() {
         .maybeSingle();
       
       if (!activeCycle) {
-        setLoadError('No active goal cycle found.');
+        const msg = 'No active goal cycle found.';
+        setLoadError(msg);
+        showToast(msg);
         setLoading(false);
         return;
       }
@@ -193,7 +197,7 @@ export default function AdminReports() {
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
     } catch (err) {
-      alert(err.message);
+      showToast(err.message ?? 'Failed to export CSV.');
     } finally {
       setExporting(false);
     }

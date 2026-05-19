@@ -3,6 +3,7 @@
 import { useState, useEffect, useTransition, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase-browser';
+import { useToast } from '@/components/ToastProvider';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const MAX_GOALS = 8;
@@ -23,6 +24,7 @@ function emptyGoal() {
     target: '',
     target_date: '',
     weightage: '',
+    is_shared: false,
   };
 }
 
@@ -104,11 +106,14 @@ function validateGoals(goals, { requireTotal = true } = {}) {
 export default function NewGoalsPage() {
   const router = useRouter();
   const supabase = createClient();
+  const { showToast } = useToast();
 
   const [thrustAreas, setThrustAreas] = useState([]);
   const [activeCycle, setActiveCycle] = useState(null);
   const [sheetStatus, setSheetStatus] = useState(null); // null = no sheet yet
   const [sheetId, setSheetId] = useState(null);         // persisted across saves
+  const [dbGoalIds, setDbGoalIds] = useState([]);
+  const [originalGoals, setOriginalGoals] = useState([]);
   const [goals, setGoals] = useState([emptyGoal()]);
   const [fieldErrors, setFieldErrors] = useState([{}]);
   const [weightageError, setWeightageError] = useState(null);
@@ -143,7 +148,9 @@ export default function NewGoalsPage() {
         .single();
 
       if (cycleErr || !cycle) {
-        setLoadError('No active goal cycle found. Please contact your administrator.');
+        const msg = 'No active goal cycle found. Please contact your administrator.';
+        setLoadError(msg);
+        showToast(msg);
         return;
       }
       setActiveCycle(cycle);
@@ -156,7 +163,9 @@ export default function NewGoalsPage() {
         .order('name');
 
       if (areasErr) {
-        setLoadError('Failed to load thrust areas. Please refresh.');
+        const msg = 'Failed to load thrust areas. Please refresh.';
+        setLoadError(msg);
+        showToast(msg);
         return;
       }
       setThrustAreas(areas ?? []);
@@ -176,11 +185,13 @@ export default function NewGoalsPage() {
         // Fetch goals for that sheet
         const { data: existingGoals } = await supabase
           .from('goals')
-          .select('id, thrust_area_id, title, description, uom_type, target, target_date, weightage, is_locked')
+          .select('id, thrust_area_id, title, description, uom_type, target, target_date, weightage, is_locked, is_shared')
           .eq('sheet_id', sheet.id)
           .order('sort_order');
 
         if (existingGoals && existingGoals.length > 0) {
+          setOriginalGoals(existingGoals);
+          setDbGoalIds(existingGoals.map(g => g.id));
           const formGoals = existingGoals.map(g => ({
             id: g.id,
             thrust_area_id: g.thrust_area_id ?? '',
@@ -193,6 +204,7 @@ export default function NewGoalsPage() {
             target_date: g.uom_type === 'timeline' ? (g.target_date ?? '') : '',
             weightage: String(g.weightage ?? ''),
             is_locked: !!g.is_locked,
+            is_shared: !!g.is_shared,
           }));
           setGoals(formGoals);
           setFieldErrors(formGoals.map(() => ({})));
@@ -206,8 +218,11 @@ export default function NewGoalsPage() {
   useEffect(() => {
     if (!touched) return;
     const { errors, weightageError: we } = validateGoals(goals);
-    setFieldErrors(errors);
-    setWeightageError(we);
+    const handle = setTimeout(() => {
+      setFieldErrors(errors);
+      setWeightageError(we);
+    }, 0);
+    return () => clearTimeout(handle);
   }, [goals, touched]);
 
   // ── Goal field update ────────────────────────────────────────────────────────
@@ -245,27 +260,134 @@ export default function NewGoalsPage() {
       ? 'bg-red-500'
       : 'bg-indigo-500';
 
+  // ── Helper to save goals to DB ─────────────────────────────────────────────
+  async function performSave(user) {
+    let currentSheetId = sheetId;
+
+    const { data: existingSheet } = await supabase
+      .from('goal_sheets')
+      .select('id')
+      .eq('employee_id', user.id)
+      .eq('cycle_id', activeCycle.id)
+      .maybeSingle();
+
+    if (existingSheet) {
+      currentSheetId = existingSheet.id;
+      if (!sheetId) setSheetId(currentSheetId);
+    } else {
+      const { data: newSheet, error: insertSheetErr } = await supabase
+        .from('goal_sheets')
+        .insert({ employee_id: user.id, cycle_id: activeCycle.id, status: 'draft' })
+        .select('id')
+        .single();
+      if (insertSheetErr) throw new Error(insertSheetErr.message);
+      currentSheetId = newSheet.id;
+      setSheetId(currentSheetId);
+    }
+
+    // 1. Delete goals removed by user
+    const currentIds = goals.map(g => g.id).filter(Boolean);
+    const toDelete = dbGoalIds.filter(id => !currentIds.includes(id));
+    if (toDelete.length > 0) {
+      const { error: deleteErr } = await supabase
+        .from('goals')
+        .delete()
+        .in('id', toDelete);
+      if (deleteErr) throw new Error(deleteErr.message);
+    }
+
+    // 2. Update existing goals
+    const existingGoalsToSave = goals.filter(g => g.id);
+    for (const g of existingGoalsToSave) {
+      const targetVal = g.uom_type === 'timeline' ? null : g.uom_type === 'zero' ? 0 : Number(g.target);
+      const targetDateVal = g.uom_type === 'timeline' ? g.target_date : null;
+
+      if (sheetStatus === 'approved') {
+        const orig = originalGoals.find(o => o.id === g.id);
+        if (orig) {
+          const hasChanged = 
+            (orig.description || '') !== (g.description.trim() || '') ||
+            (orig.title || '') !== g.title.trim() ||
+            orig.thrust_area_id !== g.thrust_area_id ||
+            orig.uom_type !== g.uom_type ||
+            (orig.target !== null && targetVal !== null ? Number(orig.target) !== Number(targetVal) : orig.target !== targetVal) ||
+            (orig.target_date || '') !== (targetDateVal || '') ||
+            Number(orig.weightage) !== Number(g.weightage);
+
+          if (hasChanged) {
+            const updatedGoal = {
+              id: g.id, sheet_id: currentSheetId, thrust_area_id: g.thrust_area_id,
+              title: g.title.trim(), description: g.description.trim() || null,
+              uom_type: g.uom_type, target: targetVal, target_date: targetDateVal,
+              weightage: Number(g.weightage), is_locked: !!g.is_locked,
+              is_shared: !!g.is_shared, sort_order: goals.indexOf(g)
+            };
+            const { error: auditErr } = await supabase.from('audit_logs').insert({
+              goal_id: g.id, change_type: 'edit', changed_by: user.id,
+              old_value: orig, new_value: updatedGoal, reason: 'Employee edited unlocked goal on approved sheet'
+            });
+            if (auditErr) throw new Error(auditErr.message);
+          }
+        }
+      }
+
+      const { error: updateErr } = await supabase
+        .from('goals')
+        .update({
+          thrust_area_id: g.thrust_area_id, title: g.title.trim(), description: g.description.trim() || null,
+          uom_type: g.uom_type, target: targetVal, target_date: targetDateVal,
+          weightage: Number(g.weightage), is_locked: !!g.is_locked, sort_order: goals.indexOf(g)
+        })
+        .eq('id', g.id);
+      if (updateErr) throw new Error(updateErr.message);
+    }
+
+    // 3. Insert new goals
+    const newGoals = goals.filter(g => !g.id);
+    const newPayload = newGoals.map((g) => ({
+      sheet_id: currentSheetId, thrust_area_id: g.thrust_area_id, title: g.title.trim(),
+      description: g.description.trim() || null, uom_type: g.uom_type,
+      target: g.uom_type === 'timeline' ? null : g.uom_type === 'zero' ? 0 : Number(g.target),
+      target_date: g.uom_type === 'timeline' ? g.target_date : null,
+      weightage: Number(g.weightage), is_locked: !!g.is_locked, is_shared: false,
+      parent_goal_id: null, sort_order: goals.indexOf(g)
+    }));
+
+    if (newPayload.length > 0) {
+      const { error: insertErr } = await supabase.from('goals').insert(newPayload);
+      if (insertErr) throw new Error(insertErr.message);
+    }
+    
+    return currentSheetId;
+  }
+
   // ── Submit sheet (status → submitted, requires total = 100%) ────────────────
   async function submitSheet() {
     setTouched(true);
     const { errors, weightageError: we, isValid } = validateGoals(goals, { requireTotal: true });
     setFieldErrors(errors);
     setWeightageError(we);
-    if (!isValid) return;
+    if (!isValid) {
+      showToast(we || 'Please correct the validation errors in the goal sheet.');
+      return;
+    }
 
     setIsSubmitting(true);
     setSubmitError('');
 
     startTransition(async () => {
       try {
-        // Must have a saved sheet to submit
-        if (!sheetId) throw new Error('Save as draft first before submitting.');
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+        
+        // Save goals to DB first
+        const currentSheetId = await performSave(user);
 
         // Update sheet status → submitted
         const { error: statusErr } = await supabase
           .from('goal_sheets')
           .update({ status: 'submitted' })
-          .eq('id', sheetId);
+          .eq('id', currentSheetId);
 
         if (statusErr) throw new Error(statusErr.message);
 
@@ -273,7 +395,9 @@ export default function NewGoalsPage() {
         setIsSubmitted(true);
         setTimeout(() => router.push('/employee/dashboard'), 1500);
       } catch (err) {
-        setSubmitError(err.message ?? 'An unexpected error occurred.');
+        const msg = err.message ?? 'An unexpected error occurred.';
+        setSubmitError(msg);
+        showToast(msg);
       } finally {
         setIsSubmitting(false);
       }
@@ -283,11 +407,14 @@ export default function NewGoalsPage() {
   // ── Save as draft ────────────────────────────────────────────────────────────
   async function saveDraft() {
     setTouched(true);
-    // Draft allows incomplete weightage — only per-field errors block save.
-    const { errors, weightageError: we, isValid } = validateGoals(goals, { requireTotal: false });
+    // Strict business rule: Weightage MUST equal 100% even for drafts.
+    const { errors, weightageError: we, isValid } = validateGoals(goals, { requireTotal: true });
     setFieldErrors(errors);
     setWeightageError(we);
-    if (!isValid) return;
+    if (!isValid) {
+      showToast(we || 'Please correct the validation errors in the goal sheet.');
+      return;
+    }
 
     setIsSaving(true);
     setSubmitError('');
@@ -297,84 +424,14 @@ export default function NewGoalsPage() {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return;
 
-        // Fetch existing sheet (draft or returned) or create a new one.
-        // We avoid upsert here because Supabase upsert may not return the
-        // existing row id reliably across all versions — explicit fetch is safer.
-        let sheetId;
-
-        const { data: existingSheet } = await supabase
-          .from('goal_sheets')
-          .select('id')
-          .eq('employee_id', user.id)
-          .eq('cycle_id', activeCycle.id)
-          .in('status', ['draft', 'returned'])
-          .maybeSingle();
-
-        if (existingSheet) {
-          sheetId = existingSheet.id;
-          setSheetId(sheetId);
-        } else {
-          const { data: newSheet, error: insertSheetErr } = await supabase
-            .from('goal_sheets')
-            .insert({ employee_id: user.id, cycle_id: activeCycle.id, status: 'draft' })
-            .select('id')
-            .single();
-          if (insertSheetErr) throw new Error(insertSheetErr.message);
-          sheetId = newSheet.id;
-          setSheetId(sheetId);
-        }
-
-        // Insert all goals
-        const goalsPayload = goals.map((g, index) => {
-          const payload = {
-            sheet_id: sheetId,
-            thrust_area_id: g.thrust_area_id,
-            title: g.title.trim(),
-            description: g.description.trim() || null,
-            uom_type: g.uom_type,
-            target: g.uom_type === 'timeline'
-              ? null
-              : g.uom_type === 'zero'
-                ? 0
-                : Number(g.target),
-            target_date: g.uom_type === 'timeline' ? g.target_date : null,
-            weightage: Number(g.weightage),
-            is_locked: !!g.is_locked,
-            is_shared: false,
-            parent_goal_id: null,
-            sort_order: index,
-          };
-          if (g.id) payload.id = g.id;
-          return payload;
-        });
-
-        // Delete removed goals safely
-        const currentGoalIds = goals.filter(g => g.id).map(g => g.id);
-        if (currentGoalIds.length > 0) {
-          const { error: deleteErr } = await supabase
-            .from('goals')
-            .delete()
-            .eq('sheet_id', sheetId)
-            .not('id', 'in', `(${currentGoalIds.join(',')})`);
-          if (deleteErr) throw new Error(deleteErr.message);
-        } else {
-          const { error: deleteErr } = await supabase
-            .from('goals')
-            .delete()
-            .eq('sheet_id', sheetId);
-          if (deleteErr) throw new Error(deleteErr.message);
-        }
-
-        const { error: goalsErr } = await supabase
-          .from('goals')
-          .upsert(goalsPayload);
-
-        if (goalsErr) throw new Error(goalsErr.message);
+        await performSave(user);
 
         setSubmitSuccess(true);
         setTimeout(() => router.push('/employee/dashboard'), 1500);
       } catch (err) {
-        setSubmitError(err.message ?? 'An unexpected error occurred. Please try again.');
+        const msg = err.message ?? 'An unexpected error occurred. Please try again.';
+        setSubmitError(msg);
+        showToast(msg);
       } finally {
         setIsSaving(false);
       }
@@ -407,32 +464,88 @@ export default function NewGoalsPage() {
           </div>
         </div>
 
-        {/* Weightage meter */}
-        <div className="bg-slate-800/60 backdrop-blur-sm border border-slate-700/60 rounded-2xl p-5 mb-6">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-medium text-slate-300">Weightage</span>
-            <span className={`text-sm font-bold tabular-nums ${totalWeightage === 100 ? 'text-emerald-400' : totalWeightage > 100 ? 'text-red-400' : 'text-indigo-400'}`}>
-              Total: {totalWeightage}% / 100%
-            </span>
-          </div>
-          <div className="w-full h-2 bg-slate-700 rounded-full overflow-hidden">
-            <div
-              className={`h-2 rounded-full transition-all duration-300 ${meterColor}`}
-              style={{ width: `${Math.min(totalWeightage, 100)}%` }}
-            />
-          </div>
-          {weightageError && touched && (
-            <p role="alert" id="weightage-error" className="mt-2 text-xs text-red-400 flex items-center gap-1">
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-                <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1Zm-.75 3.75a.75.75 0 0 1 1.5 0v3.5a.75.75 0 0 1-1.5 0v-3.5Zm.75 7a.875.875 0 1 1 0-1.75.875.875 0 0 1 0 1.75Z" />
-              </svg>
-              {weightageError}
+        {/* Sticky Progress HUD */}
+        {!isReadOnly ? (
+          <div className="sticky top-16 z-30 mb-6 bg-slate-900/80 backdrop-blur-md border border-slate-700/80 rounded-2xl p-4 shadow-[0_8px_32px_rgba(0,0,0,0.5)] transition-all duration-300">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex-1">
+                <div className="flex items-center justify-between text-xs font-semibold mb-1.5">
+                  <span className="text-slate-400">Total Goal Weightage</span>
+                  <span className={
+                    totalWeightage === 100 ? "text-emerald-400 font-bold" :
+                    totalWeightage > 100 ? "text-red-400 font-bold" : "text-indigo-400"
+                  }>
+                    Total: {totalWeightage}% / 100%
+                  </span>
+                </div>
+                <div className="w-full h-2.5 bg-slate-800 rounded-full overflow-hidden border border-slate-700/50">
+                  <div
+                    className={`h-full transition-all duration-300 rounded-full ${
+                      totalWeightage === 100 ? "bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.4)]" :
+                      totalWeightage > 100 ? "bg-red-500" : "bg-indigo-500"
+                    }`}
+                    style={{ width: `${Math.min(totalWeightage, 100)}%` }}
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between sm:justify-end gap-5">
+                <div className="text-right">
+                  <p className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider">Goals</p>
+                  <p className={`text-base font-bold ${goals.length > 8 ? 'text-red-400' : 'text-white'}`}>
+                    {goals.length} <span className="text-xs text-slate-500">/ 8</span>
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    id="hud-save-draft-btn"
+                    type="button"
+                    onClick={saveDraft}
+                    disabled={isSaving || isSubmitting || submitSuccess || isSubmitted || totalWeightage !== 100}
+                    className="px-4 py-2 rounded-lg border border-slate-600 hover:border-slate-500 text-slate-300 hover:text-white text-xs font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isSaving ? 'Saving…' : 'Save Draft'}
+                  </button>
+                  <button
+                    id="hud-submit-sheet-btn"
+                    type="button"
+                    onClick={submitSheet}
+                    disabled={isSaving || isSubmitting || submitSuccess || isSubmitted || totalWeightage !== 100}
+                    className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    {isSubmitting ? 'Submitting…' : 'Submit'}
+                  </button>
+                </div>
+              </div>
+            </div>
+            {weightageError && touched && (
+              <p role="alert" id="weightage-error" className="mt-2 text-xs text-red-400 flex items-center gap-1">
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                  <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1Zm-.75 3.75a.75.75 0 0 1 1.5 0v3.5a.75.75 0 0 1-1.5 0v-3.5Zm.75 7a.875.875 0 1 1 0-1.75.875.875 0 0 1 0 1.75Z" />
+                </svg>
+                {weightageError}
+              </p>
+            )}
+            <p className="text-[10px] text-slate-500 mt-2">
+              Each goal min {MIN_WEIGHTAGE}% · Total must equal 100%
             </p>
-          )}
-          <p className="text-xs text-slate-500 mt-2">
-            {goals.length}/{MAX_GOALS} goals · Each goal min {MIN_WEIGHTAGE}% · Total must equal 100%
-          </p>
-        </div>
+          </div>
+        ) : (
+          <div className="bg-slate-800/60 backdrop-blur-sm border border-slate-700/60 rounded-2xl p-5 mb-6">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-medium text-slate-300">Weightage</span>
+              <span className={`text-sm font-bold tabular-nums ${totalWeightage === 100 ? 'text-emerald-400' : totalWeightage > 100 ? 'text-red-400' : 'text-indigo-400'}`}>
+                Total: {totalWeightage}% / 100%
+              </span>
+            </div>
+            <div className="w-full h-2 bg-slate-700 rounded-full overflow-hidden">
+              <div
+                className={`h-2 rounded-full transition-all duration-300 ${meterColor}`}
+                style={{ width: `${Math.min(totalWeightage, 100)}%` }}
+              />
+            </div>
+          </div>
+        )}
 
         {/* Goal cards */}
         <div className="space-y-4">
@@ -445,14 +558,19 @@ export default function NewGoalsPage() {
               <div
                 key={index}
                 id={`goal-card-${index}`}
-                className="bg-slate-800/60 backdrop-blur-sm border border-slate-700/60 rounded-2xl p-6 shadow-lg"
+                className={`bg-slate-800/60 backdrop-blur-sm border ${goal.is_shared ? 'border-indigo-500/40' : 'border-slate-700/60'} rounded-2xl p-6 shadow-lg`}
               >
                 {/* Card header */}
                 <div className="flex items-center justify-between mb-5">
-                  <span className="text-sm font-semibold text-indigo-400 uppercase tracking-wider">
+                  <span className="text-sm font-semibold text-indigo-400 uppercase tracking-wider flex items-center gap-2">
                     Goal {index + 1}
+                    {goal.is_shared && (
+                      <span className="bg-indigo-500/20 text-indigo-300 text-[10px] px-2 py-0.5 rounded-full normal-case tracking-normal border border-indigo-500/30">
+                        Shared KPI
+                      </span>
+                    )}
                   </span>
-                  {goals.length > 1 && !goal.is_locked && !isReadOnly && (
+                  {goals.length > 1 && !goal.is_locked && !isReadOnly && !goal.is_shared && (
                     <button
                       id={`remove-goal-${index}`}
                       type="button"
@@ -478,7 +596,7 @@ export default function NewGoalsPage() {
                       value={goal.thrust_area_id}
                       onChange={e => updateGoal(index, 'thrust_area_id', e.target.value)}
                       className="w-full px-4 py-2.5 rounded-lg bg-slate-700/60 border border-slate-600 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition text-sm disabled:opacity-50"
-                      disabled={isSaving || isReadOnly || goal.is_locked || thrustAreas.length === 0}
+                      disabled={isSaving || isReadOnly || goal.is_locked || goal.is_shared || thrustAreas.length === 0}
                     >
                       <option value="">— Select thrust area —</option>
                       {thrustAreas.map(area => (
@@ -500,7 +618,7 @@ export default function NewGoalsPage() {
                       onChange={e => updateGoal(index, 'title', e.target.value)}
                       placeholder="e.g. Achieve Q2 Sales Revenue Target"
                       className="w-full px-4 py-2.5 rounded-lg bg-slate-700/60 border border-slate-600 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition text-sm disabled:opacity-50"
-                      disabled={isSaving || isReadOnly || goal.is_locked}
+                      disabled={isSaving || isReadOnly || goal.is_locked || goal.is_shared}
                       maxLength={200}
                     />
                     <FieldError message={errs.title} />
@@ -518,7 +636,7 @@ export default function NewGoalsPage() {
                       placeholder="Describe what success looks like…"
                       rows={2}
                       className="w-full px-4 py-2.5 rounded-lg bg-slate-700/60 border border-slate-600 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition text-sm resize-none disabled:opacity-50"
-                      disabled={isSaving || isReadOnly || goal.is_locked}
+                      disabled={isSaving || isReadOnly || goal.is_locked || goal.is_shared}
                       maxLength={1000}
                     />
                   </div>
@@ -535,7 +653,7 @@ export default function NewGoalsPage() {
                         value={goal.uom_type}
                         onChange={e => updateGoal(index, 'uom_type', e.target.value)}
                         className="w-full px-4 py-2.5 rounded-lg bg-slate-700/60 border border-slate-600 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition text-sm disabled:opacity-50"
-                        disabled={isSaving || isReadOnly || goal.is_locked}
+                        disabled={isSaving || isReadOnly || goal.is_locked || goal.is_shared}
                       >
                         {UOM_OPTIONS.map(opt => (
                           <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -557,7 +675,7 @@ export default function NewGoalsPage() {
                             value={goal.target_date}
                             onChange={e => updateGoal(index, 'target_date', e.target.value)}
                             className="w-full px-4 py-2.5 rounded-lg bg-slate-700/60 border border-slate-600 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition text-sm disabled:opacity-50 [color-scheme:dark]"
-                            disabled={isSaving || isReadOnly || goal.is_locked}
+                            disabled={isSaving || isReadOnly || goal.is_locked || goal.is_shared}
                           />
                           <FieldError message={errs.target_date} />
                         </>
@@ -582,7 +700,7 @@ export default function NewGoalsPage() {
                             onChange={e => updateGoal(index, 'target', e.target.value)}
                             placeholder="e.g. 1000000"
                             className="w-full px-4 py-2.5 rounded-lg bg-slate-700/60 border border-slate-600 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition text-sm disabled:opacity-50"
-                            disabled={isSaving || isReadOnly || goal.is_locked}
+                            disabled={isSaving || isReadOnly || goal.is_locked || goal.is_shared}
                           />
                           <FieldError message={errs.target} />
                         </>
@@ -692,7 +810,7 @@ export default function NewGoalsPage() {
                 id="save-draft-btn"
                 type="button"
                 onClick={saveDraft}
-                disabled={isSaving || isSubmitting || submitSuccess || isSubmitted}
+                disabled={isSaving || isSubmitting || submitSuccess || isSubmitted || totalWeightage !== 100}
                 className="px-6 py-2.5 rounded-lg border border-slate-600 hover:border-slate-500 text-slate-300 hover:text-white font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
                 {isSaving ? <><Spinner />Saving…</> : 'Save Draft'}
@@ -702,7 +820,7 @@ export default function NewGoalsPage() {
                 id="submit-sheet-btn"
                 type="button"
                 onClick={submitSheet}
-                disabled={isSaving || isSubmitting || submitSuccess || isSubmitted}
+                disabled={isSaving || isSubmitting || submitSuccess || isSubmitted || totalWeightage !== 100}
                 className="px-8 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-semibold text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:ring-offset-2 focus:ring-offset-slate-800 disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
               >
                 {isSubmitting ? <><Spinner />Submitting…</> : 'Submit for Approval'}

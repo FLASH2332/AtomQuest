@@ -3,6 +3,7 @@
 import { useState, useEffect, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase-browser';
+import { useToast } from '@/components/ToastProvider';
 
 // ─── Quarter helper (same logic as employee checkin page) ─────────────────────
 
@@ -63,6 +64,7 @@ export default function ManagerCheckinPage({ params }) {
   const { sheetId } = use(params);
   const router = useRouter();
   const supabase = createClient();
+  const { showToast } = useToast();
 
   const [cycle, setCycle]                   = useState(null);
   const [currentQuarter, setCurrentQuarter] = useState(null);
@@ -90,7 +92,9 @@ export default function ManagerCheckinPage({ params }) {
         .maybeSingle();
       console.log('error:', sheetErr);
       if (!sheet) {
-        setLoadError('Goal sheet not found.');
+        const msg = 'Goal sheet not found.';
+        setLoadError(msg);
+        showToast(msg);
         setLoading(false);
         return;
       }
@@ -112,7 +116,9 @@ export default function ManagerCheckinPage({ params }) {
         .maybeSingle();
       console.log('error:', cycleErr);
       if (!activeCycle) {
-        setLoadError('Cycle not found.');
+        const msg = 'Cycle not found.';
+        setLoadError(msg);
+        showToast(msg);
         setLoading(false);
         return;
       }
@@ -182,11 +188,15 @@ export default function ManagerCheckinPage({ params }) {
   // ── Save check-in comment ─────────────────────────────────────────────────────
   async function saveComment() {
     if (!comment.trim()) {
-      setSaveError('Comment cannot be empty.');
+      const msg = 'Comment cannot be empty.';
+      setSaveError(msg);
+      showToast(msg);
       return;
     }
     if (!currentQuarter) {
-      setSaveError('No check-in window is currently open.');
+      const msg = 'No check-in window is currently open.';
+      setSaveError(msg);
+      showToast(msg);
       return;
     }
 
@@ -210,7 +220,9 @@ export default function ManagerCheckinPage({ params }) {
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
     } catch (err) {
-      setSaveError(err.message ?? 'Failed to save comment.');
+      const msg = err.message ?? 'Failed to save comment.';
+      setSaveError(msg);
+      showToast(msg);
     } finally {
       setIsSaving(false);
     }
