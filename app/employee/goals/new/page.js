@@ -383,10 +383,10 @@ export default function NewGoalsPage() {
         // Save goals to DB first
         const currentSheetId = await performSave(user);
 
-        // Update sheet status → submitted
+        // Update sheet status → submitted, recording submission time
         const { error: statusErr } = await supabase
           .from('goal_sheets')
-          .update({ status: 'submitted' })
+          .update({ status: 'submitted', submitted_at: new Date().toISOString() })
           .eq('id', currentSheetId);
 
         if (statusErr) throw new Error(statusErr.message);
