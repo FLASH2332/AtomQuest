@@ -1,0 +1,42 @@
+{
+  "app": "AtomQuest Goal Tracking Portal",
+  "url": "https://atomquest-goal-tracker-alpha.vercel.app",
+  "description": "Internal goal setting and performance tracking portal with three user roles",
+  "credentials": {
+    "admin": { "email": "admin@atomquest.com", "password": "Admin@123" },
+    "manager": { "email": "manager@atomquest.com", "password": "Manager@123" },
+    "employee": { "email": "employee@atomquest.com", "password": "Employee@123" }
+  },
+  "roles": {
+    "employee": {
+      "dashboard": "/employee/dashboard",
+      "pages": ["/employee/goals/new", "/employee/checkin"],
+      "can_do": ["Create goals", "Save draft", "Submit for approval", "Log quarterly achievements", "View manager feedback"]
+    },
+    "manager": {
+      "dashboard": "/manager/dashboard",
+      "pages": ["/manager/review/[sheetId]", "/manager/checkin/[sheetId]", "/manager/push-goal"],
+      "can_do": ["Review team goals", "Approve or return sheets", "Add check-in comments", "Push shared goals", "Export team CSV"]
+    },
+    "admin": {
+      "dashboard": "/admin/dashboard",
+      "pages": ["/admin/users/new", "/admin/push-goal", "/admin/reports", "/admin/audit-logs", "/admin/analytics", "/admin/escalations"],
+      "can_do": ["Create users", "Unlock goals", "View audit logs", "View analytics", "Export org CSV", "Run escalation check"]
+    }
+  },
+  "workflows": {
+    "goal_lifecycle": ["Employee creates draft", "Employee submits", "Manager reviews", "Manager approves or returns", "Goals locked on approval", "Employee logs quarterly achievements", "Manager adds check-in comments"],
+    "admin_unlock": ["Admin goes to dashboard", "Expands employee row", "Clicks Unlock on specific goal", "Audit log written automatically"],
+    "escalation": ["Admin goes to /admin/escalations", "Clicks Run Escalation Check", "System flags overdue submissions and approvals", "Email sent to employee or manager", "Admin marks resolved"]
+  },
+  "faqs": {
+    "how_to_create_goals": "Login as employee → My Goals in navbar → fill goal form → Save Draft → Submit for Approval when weightage = 100%",
+    "how_to_approve": "Login as manager → Team Dashboard → click Review on submitted sheet → Approve & Lock Goals",
+    "how_to_checkin": "Login as employee → Check-ins in navbar → enter actual values → Save",
+    "how_to_export_csv": "Login as admin or manager → Reports → Export CSV button",
+    "how_to_create_user": "Login as admin → Admin Hub → Create User button → fill form → submit",
+    "what_is_uom": "Unit of Measure — Min (higher is better), Max (lower is better), Timeline (date-based), Zero (zero = success)",
+    "why_cant_edit_goals": "Goals are locked after manager approval. Contact admin to unlock individual goals.",
+    "how_scores_computed": "Min: actual/target, Max: target/actual, Timeline: completed on time = 100%, Zero: zero incidents = 100%"
+  }
+}
