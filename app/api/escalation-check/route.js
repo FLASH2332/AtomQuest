@@ -1,9 +1,28 @@
 import { NextResponse } from 'next/server';
-import { createAdminClient } from '@/lib/supabase';
+import { createServerSupabaseClient, createAdminClient } from '@/lib/supabase';
 import { Resend } from 'resend';
 
 export async function GET() {
   try {
+    const supabase = await createServerSupabaseClient();
+
+    // 1. Verify Authentication
+    const { data: { user }, error: authErr } = await supabase.auth.getUser();
+    if (authErr || !user) {
+      return NextResponse.json({ error: 'Unauthorized: Please log in.' }, { status: 401 });
+    }
+
+    // 2. Verify Caller has Admin role
+    const { data: profile, error: profileErr } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single();
+
+    if (profileErr || !profile || profile.role !== 'admin') {
+      return NextResponse.json({ error: 'Forbidden: Admins only.' }, { status: 403 });
+    }
+
     // Admin client is required to bypass RLS policies and retrieve organization-wide state
     const adminSupabase = createAdminClient();
     const resend = new Resend(process.env.RESEND_API_KEY);
