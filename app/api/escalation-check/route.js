@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase';
+import { Resend } from 'resend';
 
 export async function GET() {
   try {
     // Admin client is required to bypass RLS policies and retrieve organization-wide state
     const adminSupabase = createAdminClient();
+    const resend = new Resend(process.env.RESEND_API_KEY);
 
     // 1. Fetch active goal cycle
     const { data: activeCycle, error: cycleErr } = await adminSupabase
@@ -18,17 +20,20 @@ export async function GET() {
       return NextResponse.json({ message: 'No active goal cycle found.' }, { status: 200 });
     }
 
-    // 2. Fetch all employees
-    const { data: employees, error: empErr } = await adminSupabase
+    // 2. Fetch all profiles to build lookup mapping (including emails)
+    const { data: allProfiles, error: profErr } = await adminSupabase
       .from('profiles')
-      .select('id, full_name, manager_id, role')
-      .eq('role', 'employee');
+      .select('id, full_name, email, manager_id, role');
 
-    if (empErr) throw new Error(`Employees fetch failed: ${empErr.message}`);
+    if (profErr) throw new Error(`Profiles fetch failed: ${profErr.message}`);
 
-    const employeeMap = {};
-    (employees || []).forEach(emp => {
-      employeeMap[emp.id] = emp;
+    const profileMap = {};
+    const employees = [];
+    (allProfiles || []).forEach(p => {
+      profileMap[p.id] = p;
+      if (p.role === 'employee') {
+        employees.push(p);
+      }
     });
 
     // 3. Fetch goal sheets for the active cycle
@@ -100,7 +105,7 @@ export async function GET() {
 
         if (daysSubmitted > 5) {
           const daysOverdue = daysSubmitted - 5;
-          const emp = employeeMap[sheet.employee_id];
+          const emp = profileMap[sheet.employee_id];
           const escKey = `${sheet.employee_id}_approval_pending`;
 
           if (emp && !existingEscMap.has(escKey)) {
@@ -124,6 +129,38 @@ export async function GET() {
         .insert(inserts);
 
       if (insertErr) throw new Error(`Escalation inserts failed: ${insertErr.message}`);
+
+      // 6. Send email notifications using Resend
+      if (process.env.RESEND_API_KEY) {
+        for (const esc of inserts) {
+          try {
+            if (esc.type === 'goal_not_submitted') {
+              const emp = profileMap[esc.employee_id];
+              if (emp && emp.email) {
+                await resend.emails.send({
+                  from: 'onboarding@resend.dev',
+                  to: emp.email,
+                  subject: 'Action Required — Goals Not Submitted',
+                  text: `Hi ${emp.full_name},\n\nThis is an automated system notification. Please submit your goals for the active goal cycle (${activeCycle.name || 'current cycle'}) as soon as possible.\n\nThank you,\nAtomQuest Team`,
+                });
+              }
+            } else if (esc.type === 'approval_pending') {
+              const emp = profileMap[esc.employee_id];
+              const manager = profileMap[esc.manager_id];
+              if (manager && manager.email) {
+                await resend.emails.send({
+                  from: 'onboarding@resend.dev',
+                  to: manager.email,
+                  subject: 'Action Required — Goal Sheet Awaiting Approval',
+                  text: `Hi ${manager.full_name},\n\nThis is an automated system notification. The goal sheet submitted by ${emp?.full_name || 'an employee'} has been awaiting your approval for more than 5 days. Please review and approve it at your earliest convenience.\n\nThank you,\nAtomQuest Team`,
+                });
+              }
+            }
+          } catch (emailErr) {
+            console.error('Failed to send email escalation notification:', emailErr.message);
+          }
+        }
+      }
     }
 
     return NextResponse.json({
